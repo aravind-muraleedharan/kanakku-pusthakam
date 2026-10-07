@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kanakku Pusthakam</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231d3557'/%3E%3Ctext x='16' y='22' font-size='18' text-anchor='middle' fill='white' font-family='sans-serif'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
+  <script>
+    // apply the saved theme before the page paints (avoids a white flash in dark mode)
+    try { const t = JSON.parse(localStorage.getItem("aet:theme")); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">₹</span>
+        <span class="brand-name">Kanakku<small>Pusthakam</small></span>
+      </div>
+      <nav class="nav" id="nav">
+        <a href="#/dashboard" data-route="dashboard"><span class="ico">◧</span>Dashboard</a>
+        <a href="#/entries" data-route="entries"><span class="ico">☰</span>Entries</a>
+        <a href="#/reports" data-route="reports"><span class="ico">▤</span>Reports</a>
+        <a href="#/settings" data-route="settings"><span class="ico">⚙</span>Settings</a>
+      </nav>
+      <button type="button" class="btn theme-btn" id="theme-btn">Theme</button>
+      <button type="button" class="btn theme-btn logout-btn" id="logout-btn" title="Log out">
+        <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></span><span class="theme-label">Log out</span>
+      </button>
+      <a class="btn btn-primary add-btn" href="#/add">+ Add entry</a>
+    </aside>
+    <main class="main">
+      <div id="view" class="view" aria-live="polite"></div>
+    </main>
+  </div>
+  <a class="fab" href="#/add" aria-label="Add entry">+</a>
+  <div id="toast" class="toast" role="status"></div>
+  <div id="chart-tip" class="chart-tip"></div>
+  <div id="modal-root"></div>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

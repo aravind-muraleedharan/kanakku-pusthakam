@@ -1,0 +1,19 @@
+# personal data - never commit
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.db-journal
+data/secret.key
+backups/*.db
+exports/
+demo-data/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store

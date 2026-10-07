@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # No pip install on purpose: the tests must pass with the bundled vendor/flask-bundle.zip,
+      # exactly as a user would run the app.
+      - name: Run tests
+        run: python -m unittest discover tests -v
+      - name: App starts
+        run: |
+          python run.py --port 5099 &
+          for i in $(seq 1 20); do curl -fs http://127.0.0.1:5099/ > /dev/null && break; sleep 0.5; done
+          curl -fs http://127.0.0.1:5099/api/auth/status
