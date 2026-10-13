@@ -74,7 +74,68 @@ class ApiTest(unittest.TestCase):
         self.assertTrue({"bank", "credit_card", "cash"} <= kinds)
         self.assertIn("Vehicle", self.cat)
         self.assertIn("Investment Returns", self.cat)
-        self.assertEqual(len(self.mode), 5)
+        self.assertEqual(len(self.mode), 7)          # 5 seeded + Reward Points, Other
+
+    def test_page_works_offline_only(self):
+        csp = self.c.get("/").headers.get("Content-Security-Policy", "")
+        for rule in ("default-src 'self'", "script-src 'self'", "connect-src 'self'", "frame-ancestors 'none'"):
+            self.assertIn(rule, csp)
+        html = self.c.get("/").get_data(as_text=True)
+        self.assertNotIn("<script>", html)                       # no inline scripts
+        self.assertNotRegex(html, r'(src|href)="https?://')       # nothing loaded from the internet
+
+    def test_hostile_input_is_rejected_cleanly(self):
+        for amount in ("1e400", "NaN", "Infinity", "1e5", "99999999999999999999", {"a": 1}, True):
+            r = self.post(type="expense", date="2026-10-09", amount=amount, category_id=self.cat["Vehicle"],
+                          from_account_id=self.acc["SBI"])
+            self.assertEqual(r.status_code, 400, amount)
+        self.assertEqual(self.c.get("/api/investments/" + "9" * 40).status_code, 404)
+        self.assertEqual(self.c.get("/api/loans/" + "9" * 40).status_code, 404)
+
+    def test_csv_export_neutralises_formulas(self):
+        self.ok(type="expense", date="2026-10-09", amount="5", category_id=self.cat["Vehicle"],
+                from_account_id=self.acc["SBI"], note='=HYPERLINK("http://x","y")')
+        csv = self.c.get("/api/system/export.csv").get_data(as_text=True)
+        self.assertIn("'=HYPERLINK", csv)
+
+    # ------------------------------------------------------- money manager
+    def test_money_manager_groups_and_card_cycle(self):
+        r = self.c.post("/api/masters/accounts", json={"name": "Axis Card", "kind": "credit_card", "institution": "Axis",
+                                                       "credit_limit": "100000", "bill_day": 31, "due_day": "5",
+                                                       "opening_balance": "2500", "opening_date": "2026-01-01"})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        self.assertEqual(r.get_json()["credit_limit"], 100000)
+        bad = self.c.post("/api/masters/accounts", json={"name": "X", "kind": "credit_card", "due_day": 40})
+        self.assertEqual(bad.status_code, 400)
+        m = self.c.get("/api/reports/money").get_json()
+        card = next(c for c in m["cards"] if c["name"] == "Axis Card")
+        self.assertEqual(card["outstanding"], 2500)
+        self.assertEqual(card["limit_used_pct"], 2.5)
+        self.assertEqual(card["available"], 97500)
+        self.assertIn("next_due", card)
+        self.assertTrue(all(a["kind"] == "bank" for a in m["banks"]))
+        self.assertEqual(m["totals"]["card_owed"], 2500)
+        from backend.services.money import next_day_of_month
+        from datetime import date
+        self.assertEqual(next_day_of_month(31, date(2026, 2, 10)), date(2026, 2, 28))
+        self.assertEqual(next_day_of_month(5, date(2026, 12, 20)), date(2027, 1, 5))
+
+    # ------------------------------------------------------- payment modes
+    def test_reward_points_and_other_payment_mode(self):
+        self.assertIn("Reward Points", self.mode)
+        base = dict(type="expense", date="2026-09-05", amount="300", category_id=self.cat["Vehicle"],
+                    from_account_id=self.acc["Cash Wallet"])
+        e = self.ok(**base, payment_mode_id=self.mode["Reward Points"])
+        self.assertEqual(e["payment_mode"], "Reward Points")
+        r = self.post(**base, payment_mode_id=self.mode["Other"])               # Other needs the name
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()["field"], "payment_mode_other")
+        e = self.ok(**base, payment_mode_id=self.mode["Other"], payment_mode_other="Amazon Pay")
+        self.assertEqual((e["payment_mode"], e["payment_mode_other"]), ("Amazon Pay", "Amazon Pay"))
+        # switching away from Other drops the typed name
+        r = self.c.put(f"/api/entries/{e['id']}", json={**base, "payment_mode_id": self.mode["UPI"],
+                                                        "payment_mode_other": "Amazon Pay"}).get_json()
+        self.assertEqual((r["payment_mode"], r["payment_mode_other"]), ("UPI", None))
 
     # ------------------------------------------------------- credit card logic
     def test_card_spend_counted_once(self):

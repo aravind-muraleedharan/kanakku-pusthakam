@@ -19,9 +19,10 @@ CASH_LIKE = ("bank", "credit_card", "cash")
 
 # For each type: which account kinds are allowed on each side (None = side must be empty)
 RULES = {
-    "expense":  {"from": CASH_LIKE,             "to": None,             "category": "expense"},
+    "expense":  {"from": CASH_LIKE + ("loan",),  "to": None,             "category": "expense"},   # loan: charges at disbursal
     "income":   {"from": None,                  "to": CASH_LIKE,        "category": "income"},
-    "transfer": {"from": CASH_LIKE,             "to": CASH_LIKE,        "category": None},
+    "transfer": {"from": CASH_LIKE + ("investment", "loan"), "to": CASH_LIKE + ("loan",), "category": None},
+    # transfer from investment: share accounts only; from a loan (disbursal): to bank/cash; to a loan: repayment
     "invest":   {"from": CASH_LIKE,             "to": ("investment",),  "category": None},
     "redeem":   {"from": ("investment",),       "to": ("bank", "cash"), "category": "system"},
 }
@@ -51,13 +52,19 @@ def investment_returns_category_id():
     return row["id"] if row else None
 
 
+def inv_type(account_id):
+    r = one("SELECT inv_type FROM investment_details WHERE account_id = ?", (account_id,))
+    return r["inv_type"] if r else "other"
+
+
 def open_principal(account_id, exclude_entry_id=None):
-    """Principal still invested in an investment account (paise)."""
+    """Principal still invested in an investment account (paise). Share withdrawals (transfers out) reduce it."""
     acc = one("SELECT opening_balance, opening_date FROM accounts WHERE id = ?", (account_id,))
     r = one(
         """SELECT
              COALESCE(SUM(CASE WHEN type = 'invest' AND to_account_id = :a THEN amount END), 0) AS put_in,
-             COALESCE(SUM(CASE WHEN type = 'redeem' AND from_account_id = :a THEN principal_amount END), 0) AS taken_out
+             COALESCE(SUM(CASE WHEN type = 'redeem' AND from_account_id = :a THEN principal_amount
+                               WHEN type = 'transfer' AND from_account_id = :a THEN amount END), 0) AS taken_out
            FROM entries WHERE id != :x AND (:od IS NULL OR date >= :od)""",
         {"a": account_id, "x": exclude_entry_id or -1, "od": acc["opening_date"] if acc else None},
     )
@@ -68,7 +75,7 @@ def validate(payload, entry_id=None):
     """Check a submitted entry against the rules and return a clean dict ready to save."""
     t = (payload.get("type") or "").strip().lower()
     if t not in TYPES:
-        raise ApiError("Choose an entry type", field="type")
+        raise ApiError("Choose a transaction type", field="type")
     rule = RULES[t]
 
     d = (payload.get("date") or "").strip()
@@ -90,6 +97,7 @@ def validate(payload, entry_id=None):
         "date": d, "type": t, "amount": amount,
         "category_id": None, "from_account_id": None, "to_account_id": None,
         "payment_mode_id": _int_or_none(payload.get("payment_mode_id"), "payment_mode_id"),
+        "payment_mode_other": None,
         "principal_amount": None,
         "note": (payload.get("note") or "").strip()[:NOTE_MAX] or None,
     }
@@ -109,6 +117,18 @@ def validate(payload, entry_id=None):
             kinds = ", ".join(k.replace("_", " ") for k in allowed)
             raise ApiError(f"For {t}, this account must be: {kinds}", field=field)
         clean[field] = acc_id
+    from_acc = _account(clean["from_account_id"], "from_account_id") if clean["from_account_id"] else None
+    if t == "transfer" and from_acc["kind"] == "investment":
+        if inv_type(from_acc["id"]) != "share":
+            raise ApiError("Only stocks accounts can transfer out. Use Redeem for other investments.",
+                           field="from_account_id")
+        if _account(clean["to_account_id"], "to_account_id")["kind"] not in ("bank", "cash"):
+            raise ApiError("Share withdrawals go to a bank or cash account", field="to_account_id")
+    if t == "transfer" and from_acc["kind"] == "loan" and _account(clean["to_account_id"], "to_account_id")["kind"] not in ("bank", "cash"):
+        raise ApiError("A loan can only be credited to a bank or cash account", field="to_account_id")
+    if t == "redeem" and inv_type(from_acc["id"]) == "share":
+        raise ApiError("Stocks accounts are never redeemed: use a Transfer (withdrawal), so it isn't counted as income",
+                       field="from_account_id")
     if clean["from_account_id"] and clean["from_account_id"] == clean["to_account_id"]:
         raise ApiError("From and To accounts must be different", field="to_account_id")
 
@@ -141,13 +161,20 @@ def validate(payload, entry_id=None):
         clean["principal_amount"] = principal
 
     # optional references
-    if clean["payment_mode_id"] and not one("SELECT id FROM payment_modes WHERE id = ?", (clean["payment_mode_id"],)):
-        raise ApiError("Payment mode not found", field="payment_mode_id")
+    if clean["payment_mode_id"]:
+        pm = one("SELECT name FROM payment_modes WHERE id = ?", (clean["payment_mode_id"],))
+        if not pm:
+            raise ApiError("Payment mode not found", field="payment_mode_id")
+        if pm["name"].strip().lower() == "other":         # Other: say what it was
+            other = (payload.get("payment_mode_other") or "").strip()[:60]
+            if not other:
+                raise ApiError("Enter the payment mode", field="payment_mode_other")
+            clean["payment_mode_other"] = other
     return clean
 
 
 COLUMNS = ("date", "type", "amount", "category_id", "from_account_id", "to_account_id",
-           "payment_mode_id", "principal_amount", "note")
+           "payment_mode_id", "payment_mode_other", "principal_amount", "note")
 
 
 def create(payload):
@@ -163,7 +190,7 @@ def create(payload):
 
 def update(entry_id, payload):
     if not one("SELECT id FROM entries WHERE id = ?", (entry_id,)):
-        raise ApiError("Entry not found", status=404)
+        raise ApiError("Transaction not found", status=404)
     clean = validate(payload, entry_id=entry_id)
     conn = get_db()
     conn.execute(
@@ -178,11 +205,11 @@ def update(entry_id, payload):
 def delete(entry_id):
     entry = one("SELECT * FROM entries WHERE id = ?", (entry_id,))
     if not entry:
-        raise ApiError("Entry not found", status=404)
-    if entry["type"] == "invest":
+        raise ApiError("Transaction not found", status=404)
+    if entry["type"] == "invest" and inv_type(entry["to_account_id"]) != "share":
         # deleting an invest must not leave redeemed principal larger than what was put in
         if open_principal(entry["to_account_id"], exclude_entry_id=entry_id) < 0:
-            raise ApiError("This investment has already been (partly) redeemed. Edit or delete the Redeem entry first.")
+            raise ApiError("This investment has already been (partly) redeemed. Edit or delete the Redeem transaction first.")
     conn = get_db()
     conn.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
     conn.commit()
@@ -193,7 +220,7 @@ SELECT e.id, e.date, e.type, e.amount, e.principal_amount, e.note,
        e.category_id, c.name AS category,
        e.from_account_id, fa.name AS from_account, fa.kind AS from_kind,
        e.to_account_id, ta.name AS to_account, ta.kind AS to_kind,
-       e.payment_mode_id, pm.name AS payment_mode,
+       e.payment_mode_id, COALESCE(e.payment_mode_other, pm.name) AS payment_mode, e.payment_mode_other,
        e.created_at, e.updated_at
 FROM entries e
 LEFT JOIN categories c     ON c.id = e.category_id
@@ -215,7 +242,7 @@ def _out(r):
 def get(entry_id):
     r = one(SELECT + " WHERE e.id = ?", (entry_id,))
     if not r:
-        raise ApiError("Entry not found", status=404)
+        raise ApiError("Transaction not found", status=404)
     return _out(r)
 
 

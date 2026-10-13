@@ -89,7 +89,7 @@ async function monthly(body, q, range) {
   const cur = thisMonth();
   rows = rows.filter((r) => r.month <= cur || r.entries);
   const sum = await api.summary(q);
-  if (!rows.length) { body.innerHTML = `<div class="panel empty">No entries in this period.</div>`; return; }
+  if (!rows.length) { body.innerHTML = `<div class="panel empty">No transactions in this period.</div>`; return; }
   const n = rows.length;
   body.innerHTML = `
     <div class="grid grid-4">
@@ -140,7 +140,7 @@ async function categories(body, q, kind, nav) {
     </section>
     <section class="panel" style="margin-top:16px">
       <div class="table-wrap"><table>
-        <thead><tr><th>Category</th><th class="num">Entries</th><th class="num">Amount</th><th class="num">Share</th></tr></thead>
+        <thead><tr><th>Category</th><th class="num">Transactions</th><th class="num">Amount</th><th class="num">Share</th></tr></thead>
         <tbody>${data.items.map((c) => `<tr class="click" data-cat="${c.id}"><td>${esc(c.name)}</td><td class="num muted">${c.count}</td><td class="num" style="font-weight:600">${money(c.amount)}</td><td class="num muted">${c.share}%</td></tr>`).join("")
           || `<tr><td colspan="4" class="empty">No ${kind} in this period.</td></tr>`}</tbody>
         ${data.items.length ? `<tfoot><tr><td>Total</td><td class="num">${data.items.reduce((a, c) => a + c.count, 0)}</td><td class="num">${money(data.total)}</td><td class="num">100%</td></tr></tfoot>` : ""}
@@ -163,7 +163,7 @@ async function grid(body, q, kind, nav) {
   const color = kind === "income" ? "var(--income)" : "var(--expense)";
   body.innerHTML = `
     <section class="panel">
-      <div class="panel-head">${kindToggle(kind)}<span class="small muted">Darker cell = more spent. Click a cell to see its entries.</span></div>
+      <div class="panel-head">${kindToggle(kind)}<span class="small muted">Darker cell = more spent. Click a cell to see its transactions.</span></div>
       <div class="panel-body" style="padding:14px 0 0">
         <div class="table-wrap"><table class="heat">
           <thead><tr><th>Month</th>${g.categories.map((c) => `<th class="num" title="${esc(c.name)}">${esc(c.name.length > 16 ? c.name.slice(0, 15) + "…" : c.name)}</th>`).join("")}<th class="num">Total</th></tr></thead>

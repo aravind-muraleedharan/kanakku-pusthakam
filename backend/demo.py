@@ -6,7 +6,7 @@ import random
 from datetime import date
 
 from .db import get_db, one, rows
-from .services import entries, masters
+from .services import entries, investments, loans, masters
 
 
 def _month_start(d, back):
@@ -25,13 +25,17 @@ def seed_demo(app):
         bank, card, cash = acc.get("bank"), acc.get("credit_card"), acc.get("cash")
         cat = {c["name"]: c["id"] for c in rows("SELECT id, name FROM categories")}
         mode = {m["name"]: m["id"] for m in rows("SELECT id, name FROM payment_modes")}
-        rd = masters.create("accounts", {"name": "Recurring Deposit", "kind": "investment"})["id"]
+        rd = masters.create("accounts", {"name": "Post Office RD", "kind": "investment", "inv_type": "rd"})["id"]
 
         today = date.today()
         y0, m0 = _month_start(today, 12)
         get_db().execute("UPDATE accounts SET opening_balance = ?, opening_date = ? WHERE id = ?",
                          (2500000, f"{y0:04d}-{m0:02d}-01", bank))
         get_db().execute("UPDATE accounts SET opening_date = ? WHERE opening_date IS NULL", (f"{y0:04d}-{m0:02d}-01",))
+        get_db().execute("UPDATE accounts SET institution = 'HDFC Bank', subtype = 'savings' WHERE id = ?", (bank,))
+        if card:
+            get_db().execute("UPDATE accounts SET institution = 'SBI Card', credit_limit = 15000000, bill_day = 20, "
+                             "due_day = 10 WHERE id = ?", (card,))
         get_db().commit()
 
         spend = [("Food & Groceries", 600, 3500), ("Dining Out / Food Delivery", 250, 1400), ("Vehicle", 400, 2800),
@@ -67,4 +71,79 @@ def seed_demo(app):
             if back > 0 and on_card:
                 entries.create({"type": "transfer", "date": f"{ym}-25", "amount": str(on_card), "from_account_id": bank,
                                 "to_account_id": card, "payment_mode_id": mode["Net Banking"], "note": "Card bill"})
+        _demo_investments(today, y0, m0, rd, bank, rnd)
+        _demo_loans(today, bank, card, cat)
         return True
+
+
+def _demo_investments(today, y0, m0, rd, bank, rnd):
+    start = f"{y0:04d}-{m0:02d}-05"
+    investments.update(rd, {"inv_type": "rd", "institution": "India Post", "amount": "5000", "rate": "6.7",
+                            "start_date": start, "term_months": "60"})
+    # share account: funds added, a year of market actions, dividends, one withdrawal
+    sh = investments.create({"name": "Zerodha - Trading", "inv_type": "share", "institution": "Zerodha",
+                             "goal_pct": "20", "goal_date": f"{today.year + 1}-03-31"})["account"]["id"]
+    entries.create({"type": "invest", "date": start, "amount": "150000", "from_account_id": bank,
+                    "to_account_id": sh, "note": "Funds added"})
+    stocks = ["TCS", "INFY", "HDFCBANK", "ITC", "TATAMOTORS", "SBIN", "RELIANCE", "BEL"]
+    for back in range(12, -1, -1):
+        y, m = _month_start(today, back)
+        last = 28 if back else min(today.day, 28)
+        for _ in range(rnd.randint(1, 4)):
+            kind = rnd.choice(["cnc_buy", "cnc_sell", "cnc_sell", "mtf_buy", "mtf_sell", "intraday"])
+            profit = (0 if kind.endswith("buy") else rnd.randint(-1500, 4000) if kind.endswith("sell")
+                      else rnd.randint(-900, 1200))
+            investments.add_action(sh, {"date": f"{y:04d}-{m:02d}-{rnd.randint(1, last):02d}", "action": kind,
+                                        "stocks": rnd.choice(stocks), "profit": str(profit),
+                                        "charges": str(rnd.randint(15, 90))})
+        if m in (6, 8):
+            investments.add_dividend(sh, {"date": f"{y:04d}-{m:02d}-20", "stock": "ITC", "amount": str(rnd.randint(300, 900))})
+    y, m = _month_start(today, 2)
+    investments.withdraw(sh, {"date": f"{y:04d}-{m:02d}-10", "amount": "20000", "to_account_id": bank})
+    # FDs: one cumulative already held, one with quarterly interest opened this year
+    investments.create({"name": "SBI FD 2025", "inv_type": "fd", "institution": "SBI", "amount": "200000", "rate": "7.1",
+                        "start_date": f"{y0 - 1:04d}-{m0:02d}-15", "term_months": "36"})
+    y, m = _month_start(today, 7)
+    fd = investments.create({"name": "Federal Bank FD", "inv_type": "fd", "institution": "Federal Bank", "amount": "100000",
+                             "rate": "7.4", "start_date": f"{y:04d}-{m:02d}-10", "term_months": "24", "payout": "quarterly",
+                             "paid_from_account_id": bank})
+    first = fd["summary"]["payouts"][0]
+    investments.record_payout(fd["account"]["id"], {"date": first["date"], "amount": str(first["amount"]), "to_account_id": bank})
+    # PPF with a balance and yearly deposits
+    ppf = investments.create({"name": "SBI PPF", "inv_type": "ppf", "institution": "SBI", "start_date": "2019-04-10",
+                              "opening_balance": "420000", "opening_date": f"{y0:04d}-{m0:02d}-01"})["account"]["id"]
+    for back in (11, 5):
+        y, m = _month_start(today, back)
+        entries.create({"type": "invest", "date": f"{y:04d}-{m:02d}-04", "amount": "50000", "from_account_id": bank,
+                        "to_account_id": ppf, "note": "PPF deposit"})
+    # gold and silver
+    g = investments.create({"name": "Gold coins", "inv_type": "gold"})["account"]["id"]
+    investments.add_item(g, {"description": "8 g coin", "grams": "8", "purity": "99.5", "total_paid": "46800",
+                             "making_charges": "2100", "rate": "5500", "date": "2022-11-02"})
+    investments.add_item(g, {"description": "10 g coin", "grams": "10", "purity": "99.9", "total_paid": "61500", "rate": "6050",
+                             "date": "2023-10-20"})
+    sv = investments.create({"name": "Silver bars", "inv_type": "silver"})["account"]["id"]
+    investments.add_item(sv, {"description": "500 g bar", "grams": "500", "purity": "99.9", "total_paid": "38500", "rate": "75",
+                              "date": "2021-08-12"})
+
+
+def _demo_loans(today, bank, card, cat):
+    from .services.investments import add_months
+    # phone on a 9-month no-cost card EMI, bought 3 months ago
+    if card:
+        start = add_months(today, -3)
+        ph = loans.create({"name": "Phone EMI", "loan_type": "cc_emi", "lender": "SBI Card", "account_id": card,
+                           "category_id": cat["Electronics & Gadgets"], "principal": "72000", "emi": "8000",
+                           "tenure_months": 9, "charges": "236", "first_emi_date": add_months(start, 1).isoformat(),
+                           "start_date": start.isoformat()})
+        for _ in range(2):
+            loans.pay_emi(ph["id"], {})
+    # personal loan taken 6 months ago, one part-prepayment
+    start = add_months(today, -6)
+    pl = loans.create({"name": "HDFC Personal Loan", "loan_type": "personal", "lender": "HDFC Bank",
+                       "bank_account_id": bank, "principal": "300000", "emi": "10030", "tenure_months": 36,
+                       "charges": "5900", "first_emi_date": add_months(start, 1).isoformat(),
+                       "start_date": start.isoformat()})
+    for _ in range(5):
+        loans.pay_emi(pl["id"], {})
+    loans.prepay(pl["id"], {"amount": "25000", "mode": "tenure", "date": add_months(today, -1).isoformat()})

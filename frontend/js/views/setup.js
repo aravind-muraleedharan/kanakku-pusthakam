@@ -7,7 +7,6 @@ const GROUPS = [
   { kind: "bank", title: "Bank accounts", label: "Balance", hint: "Balance as shown in your bank app or passbook.", add: "e.g. ICICI" },
   { kind: "cash", title: "Cash", label: "Cash in hand", hint: "Cash you are holding right now.", add: "e.g. Home cash box" },
   { kind: "credit_card", title: "Credit cards", label: "Outstanding", hint: "Total amount you currently owe on the card: billed but unpaid + unbilled spends.", add: "e.g. Amazon Pay ICICI Card" },
-  { kind: "investment", title: "Investments", label: "Principal invested", hint: "Total money you have put in so far: RD instalments paid, chitty subscriptions paid, FD amount, SIPs…", add: "e.g. KSFE Chitty, Federal RD, PPF" },
 ];
 
 let rows = {};      // id -> {amount, date}
@@ -30,7 +29,7 @@ export async function render() {
     <div class="page-head">
       <div>
         <h1>Starting balances</h1>
-        <div class="sub muted small">Enter where each account stands on a date. Every entry from that date onward updates these balances.</div>
+        <div class="sub muted small">Enter where each account stands on a date. Every transaction from that date onward updates these balances.</div>
       </div>
     </div>
 
@@ -38,16 +37,18 @@ export async function render() {
       <div class="field" style="max-width:340px">
         <label for="common-date">As on date</label>
         <input type="date" id="common-date" value="${common}">
-        <div class="hint">Use the date you start recording entries. You can change it per account below.</div>
+        <div class="hint">Use the date you start recording transactions. You can change it per account below.</div>
       </div>
       <div class="callout small" style="margin-top:14px">
         Example: SBI shows ₹400 and you have ₹500 cash today. Enter those with today's date, then record today's
-        and later spending as entries. Entries dated <b>before</b> this date still appear in reports but don't change the balance.
+        and later spending as transactions. Transactions dated <b>before</b> this date still appear in reports but don't change the balance.
       </div>
     </section>
 
     <form id="setup-form" novalidate style="max-width:860px">
       ${GROUPS.map((g) => group(g, accounts.filter((a) => a.kind === g.kind))).join("")}
+      <div class="callout small" style="margin-bottom:16px"><strong>Investments and loans</strong> are added on their own pages,
+        with the amount already invested or owed: <a href="#/investments">Investments →</a> · <a href="#/loans">Loans &amp; EMIs →</a></div>
       <div class="form-actions" style="margin-top:4px">
         <button type="submit" class="btn btn-primary">Save starting balances</button>
         <span class="spacer"></span>
