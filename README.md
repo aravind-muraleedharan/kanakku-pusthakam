@@ -15,13 +15,13 @@ computer; your data never leaves it.
 You need **Python 3.10 or newer**. Most current Linux distributions already have it: check with `python3 --version`.
 
 ```bash
-git clone <this repository's URL> kanakku-pusthakam   # or: Code → Download ZIP, then unzip
+git clone https://github.com/aravind-muraleedharan/kanakku-pusthakam.git   # or: Code → Download ZIP
 cd kanakku-pusthakam
 ./start.sh
 ```
 
 Your browser opens at `http://127.0.0.1:5000`. Create your login, scan the QR code with an authenticator app,
-enter your starting balances, and you're ready. There's nothing to install: no `pip`, no internet needed.
+enter your starting balances, and you're ready. There's nothing to install (no `pip`), and it works offline.
 
 **Just want to look around first?** Run `python3 run.py --demo --open` for the app with a year of sample data.
 It's stored separately in `demo-data/` and never mixes with your real data.
@@ -33,7 +33,7 @@ Stop the app with **Ctrl+C** in the terminal.
 - **Fast entry:** expense, income, transfer, invest and redeem, with today's date pre-filled and the payment mode
   (UPI, card, cash…) picked from the account
 - **Credit cards done right:** a card swipe is the expense; paying the bill is a transfer, so nothing is counted twice.
-  The dashboard shows what you owe on each card
+  Money Manager shows what you owe on each card, its limit and the next due date
 - **Money Manager:** one page for everything you have and owe (banks, cards with limit and due date, cash,
   investments, loans) and your **net worth**
 - **Investments aren't spending:** money put in is tracked as principal; when it matures only the gain (or loss)
@@ -50,7 +50,8 @@ Stop the app with **Ctrl+C** in the terminal.
 - **Reports:** monthly income / expense / savings, category totals, a month × category heat map,
   spending by payment mode; any period including the Indian financial year (Apr–Mar)
 - **Starting balances "as on" a date** for every bank account, card, cash and investment
-- **Secure login:** password + authenticator app (Google / Microsoft Authenticator, Authy), password reset by email
+- **Secure login:** password + authenticator app (Google / Microsoft Authenticator, Authy), optional password reset
+  by email. The app only answers on this computer, and its files are readable only by you
 - **Light, dark and auto theme**, works on phone-sized screens
 - **Your data stays yours:** one SQLite file, automatic backups, backup to a pen drive or other folder,
   restore from a backup, CSV export for Excel
@@ -110,7 +111,7 @@ See [SECURITY.md](SECURITY.md) for what the login does and doesn't protect.
 ## Development
 
 ```bash
-python3 -m unittest discover tests -v     # 68 tests, uses a temporary database
+python3 -m unittest discover tests -v     # all tests, on a temporary database
 python3 run.py --demo                     # sample data for trying changes
 ```
 
