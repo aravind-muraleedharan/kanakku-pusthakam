@@ -3,7 +3,7 @@
 | Where | Package | Version | Licence |
 | --- | --- | --- | --- |
 | `vendor/flask-bundle.zip` | Flask | 3.1.3 | BSD-3-Clause |
-| | Werkzeug | 3.1.8 | BSD-3-Clause |
+| | Werkzeug | 3.1.9 | BSD-3-Clause |
 | | Jinja2 | 3.1.6 | BSD-3-Clause |
 | | MarkupSafe | 3.0.3 | BSD-3-Clause |
 | | itsdangerous | 2.2.0 | BSD-3-Clause |

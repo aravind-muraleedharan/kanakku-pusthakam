@@ -6,13 +6,17 @@ from ..db import get_db, one, rows
 from ..errors import ApiError
 from ..money import to_paise, to_rupees
 
-ACCOUNT_KINDS = ("bank", "credit_card", "cash", "investment")
+ACCOUNT_KINDS = ("bank", "credit_card", "cash", "investment", "loan")
+BANK_SUBTYPES = ("savings", "current", "salary", "other")
+OWED = ("credit_card", "loan")          # opening amount entered as "owed", stored as a negative balance
+INV_TYPES = ("share", "fd", "rd", "ppf", "gold", "silver", "chitty", "other")
 CATEGORY_KINDS = ("expense", "income")
 
 # table -> (columns the API may set, usage check SQL)
 TABLES = {
     "accounts": {
-        "fields": ("name", "kind", "opening_balance", "opening_date", "active", "sort_order"),
+        "fields": ("name", "kind", "opening_balance", "opening_date", "active", "sort_order",
+                   "institution", "subtype", "credit_limit", "bill_day", "due_day"),
         "usage": "SELECT COUNT(*) AS n FROM entries WHERE from_account_id = :id OR to_account_id = :id",
     },
     "categories": {
@@ -38,7 +42,9 @@ def _usage(table, item_id):
 def _account_out(r):
     r = dict(r)
     # credit card opening is stored as a negative balance; show it as a positive outstanding
-    r["opening_balance"] = to_rupees(-r["opening_balance"] if r["kind"] == "credit_card" else r["opening_balance"])
+    r["opening_balance"] = to_rupees(-r["opening_balance"] if r["kind"] in OWED else r["opening_balance"])
+    if "credit_limit" in r:
+        r["credit_limit"] = to_rupees(r["credit_limit"])
     return r
 
 
@@ -51,7 +57,11 @@ def list_items(table, include_inactive=True):
         r["active"] = bool(r["active"])
         r["used"] = _usage(table, r["id"])
     if table == "accounts":
+        types = {r["account_id"]: r["inv_type"] for r in rows("SELECT account_id, inv_type FROM investment_details")}
         data = [_account_out(r) for r in data]
+        for r in data:
+            if r["kind"] == "investment":
+                r["inv_type"] = types.get(r["id"], "other")
     return data
 
 
@@ -95,13 +105,33 @@ def _clean(table, payload, existing=None):
                     _date.fromisoformat(v)
                 except ValueError:
                     raise ApiError("Date must be YYYY-MM-DD", field="opening_date")
-        elif f == "description":
-            v = (v or "").strip() or None
+        elif f in ("description", "institution"):
+            v = (v or "").strip()[:80] or None
+        elif f == "subtype":
+            v = v or None
+            if v and v not in BANK_SUBTYPES:
+                raise ApiError("Choose savings, current, salary or other", field="subtype")
+        elif f == "credit_limit":
+            try:
+                v = to_paise(v)
+            except ValueError as e:
+                raise ApiError(str(e), field="credit_limit")
+            if v is not None and v < 0:
+                raise ApiError("Limit can't be negative", field="credit_limit")
+        elif f in ("bill_day", "due_day"):
+            if v in (None, ""):
+                v = None
+            else:
+                try:
+                    v = int(v)
+                    assert 1 <= v <= 31
+                except (TypeError, ValueError, AssertionError):
+                    raise ApiError("Enter a day of the month, 1–31", field=f)
         clean[f] = v
 
     if table == "accounts" and "opening_balance" in clean:
         kind = clean.get("kind") or (existing or {}).get("kind")
-        if kind == "credit_card":
+        if kind in OWED:
             clean["opening_balance"] = -clean["opening_balance"]
     return clean
 
@@ -121,6 +151,10 @@ def create(table, payload):
         cur = conn.execute(
             f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join(':' + c for c in cols)})", clean
         )
+        if table == "accounts" and clean.get("kind") == "investment":
+            code = payload.get("inv_type") if payload.get("inv_type") in INV_TYPES else "other"
+            conn.execute("INSERT OR IGNORE INTO investment_details (account_id, inv_type, type_id) "
+                         "VALUES (?, ?, (SELECT id FROM investment_types WHERE builtin = ?))", (cur.lastrowid, code, code))
         conn.commit()
     except sqlite3.IntegrityError:
         raise ApiError(f"'{clean['name']}' already exists", field="name")
@@ -146,7 +180,7 @@ def update(table, item_id, payload):
         raise ApiError("This category is managed by the app and can't be changed")
     clean = _clean(table, payload, existing)
     if "kind" in clean and clean["kind"] != existing["kind"] and _usage(table, item_id):
-        raise ApiError("Type can't be changed once entries use it. Add a new one instead.", field="kind")
+        raise ApiError("Type can't be changed once transactions use it. Add a new one instead.", field="kind")
     if not clean:
         return get(table, item_id)
     conn = get_db()
@@ -170,7 +204,7 @@ def delete(table, item_id):
         raise ApiError("This category is managed by the app and can't be deleted")
     n = _usage(table, item_id)
     if n:
-        raise ApiError(f"Used by {n} entr{'y' if n == 1 else 'ies'}. Deactivate it instead, so past entries stay intact.")
+        raise ApiError(f"Used by {n} transaction{'' if n == 1 else 's'}. Deactivate it instead, so past transactions stay intact.")
     conn = get_db()
     conn.execute(f"DELETE FROM {table} WHERE id = ?", (item_id,))
     conn.commit()

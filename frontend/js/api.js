@@ -2,7 +2,9 @@
 
 async function request(method, url, body) {
   const opts = { method, headers: { "X-Requested-With": "KanakkuPusthakam" }, credentials: "same-origin" };
-  if (body !== undefined) {
+  if (body instanceof FormData) {
+    opts.body = body;                       // file upload: the browser sets the multipart Content-Type
+  } else if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
@@ -53,6 +55,26 @@ export const api = {
   grid: (params) => request("GET", `/api/reports/grid${qs(params)}`),
   paymentModes: (range) => request("GET", `/api/reports/payment-modes${qs(range)}`),
   balances: () => request("GET", "/api/reports/balances"),
+  money: () => request("GET", "/api/reports/money"),
+
+  // investments
+  investments: () => request("GET", "/api/investments"),
+  investment: (id) => request("GET", `/api/investments/${id}`),
+  createInvestment: (data) => request("POST", "/api/investments", data),
+  updateInvestment: (id, data) => request("PUT", `/api/investments/${id}`, data),
+  deleteInvestment: (id) => request("DELETE", `/api/investments/${id}`),
+  invPost: (id, path, data) => request("POST", `/api/investments/${id}/${path}`, data || {}),
+  invPut: (id, path, data) => request("PUT", `/api/investments/${id}/${path}`, data),
+  invDelete: (id, path) => request("DELETE", `/api/investments/${id}/${path}`),
+  investmentTypes: () => request("GET", "/api/investment-types"),
+
+  // loans
+  loans: () => request("GET", "/api/loans"),
+  loan: (id) => request("GET", `/api/loans/${id}`),
+  createLoan: (data) => request("POST", "/api/loans", data),
+  updateLoan: (id, data) => request("PUT", `/api/loans/${id}`, data),
+  deleteLoan: (id) => request("DELETE", `/api/loans/${id}`),
+  loanPost: (id, path, data) => request("POST", `/api/loans/${id}/${path}`, data || {}),
 
   // auth
   authStatus: () => request("GET", "/api/auth/status"),
@@ -76,6 +98,9 @@ export const api = {
   info: () => request("GET", "/api/system/info"),
   backups: () => request("GET", "/api/system/backups"),
   backup: () => request("POST", "/api/system/backups"),
+  backupTo: (path) => request("POST", "/api/system/backup-to", { path }),
+  restoreUpload: (formData) => request("POST", "/api/system/restore", formData),
+  restoreBackup: (file, password) => request("POST", "/api/system/restore-backup", { file, password }),
   exportUrl: (params) => `/api/system/export.csv${qs(params)}`,
 };
 

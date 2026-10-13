@@ -28,12 +28,12 @@ function bindTips(root) {
  * rows: [{month, income, expense, net}]
  */
 export function incomeExpenseChart(el, rows, { onClick } = {}) {
-  if (!rows.length) {
-    el.innerHTML = `<div class="empty small">No data yet</div>`;
+  if (!rows.length || rows.every((r) => !r.income && !r.expense && !r.net)) {
+    el.innerHTML = `<div class="empty small">No income or expenses in these months yet.<br>Add transactions and the chart fills in.</div>`;
     return;
   }
   const W = 720, H = 250, L = 52, R = 12, T = 14, B = 30;
-  const max = niceMax(Math.max(...rows.map((r) => Math.max(r.income, r.expense)), 1));
+  const max = niceMax(Math.max(...rows.map((r) => Math.max(r.income, r.expense)), 0));
   const minNet = Math.min(0, ...rows.map((r) => r.net));
   const min = minNet < 0 ? -niceMax(-minNet) : 0;
   const y = (v) => T + (H - T - B) * (1 - (v - min) / (max - min));
@@ -85,4 +85,46 @@ export function barList(el, items, { kind = "expense", onClick, empty = "Nothing
       <div class="bar-track"><div class="bar-fill ${cls}" style="width:${Math.max(1, (Math.abs(i.amount) / max) * 100)}%;${i.amount < 0 ? "background:var(--expense)" : ""}"></div></div>
     </div>`).join("")}</div>`;
   if (onClick) el.querySelectorAll(".bar-row").forEach((r) => r.addEventListener("click", () => onClick(items[+r.dataset.idx])));
+}
+
+/**
+ * Donut chart with a legend. items: [{label, value, color, sub?}]. Slices under ~1% still show a sliver.
+ */
+export function donutChart(el, items, { centerLabel = "Total", centerValue, onClick } = {}) {
+  const list = items.filter((i) => i.value > 0);
+  const total = list.reduce((a, i) => a + i.value, 0);
+  if (!total) {
+    el.innerHTML = `<div class="empty small">Nothing invested yet</div>`;
+    return;
+  }
+  const R = 80, r = 52, C = 100;
+  const pt = (a, rad) => [C + rad * Math.sin(a), C - rad * Math.cos(a)];
+  let a0 = 0, s = "";
+  list.forEach((i, idx) => {
+    const frac = i.value / total;
+    const a1 = a0 + Math.max(frac, 0.004) * Math.PI * 2;
+    const tip = `<b>${esc(i.label)}</b><br>${money(i.value)} · ${(frac * 100).toFixed(1)}%`;
+    if (list.length === 1) {
+      s += `<g data-idx="${idx}" data-tip="${esc(tip)}"><circle cx="${C}" cy="${C}" r="${(R + r) / 2}" fill="none" stroke="${i.color}" stroke-width="${R - r}"/></g>`;
+    } else {
+      const big = a1 - a0 > Math.PI ? 1 : 0;
+      const [x0, y0] = pt(a0, R), [x1, y1] = pt(a1, R), [x2, y2] = pt(a1, r), [x3, y3] = pt(a0, r);
+      s += `<path data-idx="${idx}" data-tip="${esc(tip)}" fill="${i.color}" stroke="var(--panel)" stroke-width="1.5"
+        d="M${x0},${y0} A${R},${R} 0 ${big} 1 ${x1},${y1} L${x2},${y2} A${r},${r} 0 ${big} 0 ${x3},${y3} Z"/>`;
+    }
+    a0 = a1;
+  });
+  s += `<text x="${C}" y="${C - 4}" text-anchor="middle" class="donut-label">${esc(centerLabel)}</text>
+        <text x="${C}" y="${C + 16}" text-anchor="middle" class="donut-value">${esc(centerValue ?? moneyShort(total))}</text>`;
+  el.innerHTML = `<div class="donut-wrap">
+    <div class="chart donut"><svg viewBox="0 0 200 200" role="img" aria-label="Investments by type">${s}</svg></div>
+    <div class="donut-legend">${list.map((i, idx) => `
+      <div class="dl-row ${onClick ? "click" : ""}" data-idx="${idx}">
+        <i style="background:${i.color}"></i>
+        <span class="dl-name">${esc(i.label)}${i.sub ? `<small>${esc(i.sub)}</small>` : ""}</span>
+        <span class="dl-val">${money(i.value)}<small>${((i.value / total) * 100).toFixed(1)}%</small></span>
+      </div>`).join("")}</div>
+  </div>`;
+  bindTips(el);
+  if (onClick) el.querySelectorAll("[data-idx]").forEach((n) => n.addEventListener("click", () => onClick(list[+n.dataset.idx])));
 }

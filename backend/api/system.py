@@ -3,9 +3,14 @@ import csv
 import io
 from datetime import datetime
 
-from flask import Blueprint, Response, current_app, jsonify, request
+import os
+import tempfile
+
+from flask import Blueprint, Response, current_app, jsonify, request, session
 
 from .. import db
+from ..errors import ApiError
+from ..services import backup as backup_svc
 from ..services import entries as entries_svc
 
 bp = Blueprint("system", __name__)
@@ -25,6 +30,7 @@ def info():
         "entries": count["n"],
         "first_entry": count["first"],
         "last_entry": count["last"],
+        "backup_folder": backup_svc.last_folder(),
     })
 
 
@@ -37,6 +43,45 @@ def backups():
 def make_backup():
     path = db.backup(db.get_db(), current_app.config["BACKUP_DIR"], label="manual")
     return jsonify({"file": path.rsplit("/", 1)[-1]}), 201
+
+
+@bp.post("/system/backup-to")
+def backup_to():
+    data = request.get_json(silent=True) or {}
+    return jsonify(backup_svc.backup_to(data.get("path"))), 201
+
+
+@bp.post("/system/restore")
+def restore_upload():
+    """Restore from a database file chosen in the browser (multipart: file, password)."""
+    up = request.files.get("file")
+    if not up or not up.filename:
+        raise ApiError("Choose the backup file", field="file")
+    os.makedirs(current_app.config["BACKUP_DIR"], exist_ok=True)
+    fd, tmp = tempfile.mkstemp(suffix=".restore", dir=current_app.config["BACKUP_DIR"])
+    os.close(fd)
+    try:
+        up.save(tmp)
+        result = backup_svc.restore_from(tmp, request.form.get("password"))
+    finally:
+        os.remove(tmp)
+    session.clear()                          # log in again (the restored data has its own login)
+    return jsonify(result)
+
+
+@bp.post("/system/restore-backup")
+def restore_listed():
+    data = request.get_json(silent=True) or {}
+    result = backup_svc.restore_named_backup(data.get("file"), data.get("password"))
+    session.clear()
+    return jsonify(result)
+
+
+def _cell(text):
+    """Text cells that start like a formula (=, +, -, @, tab, CR) get a leading apostrophe, so Excel/LibreOffice
+    show them as text instead of running them."""
+    text = text or ""
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
 
 
 @bp.get("/system/export.csv")
@@ -56,10 +101,10 @@ def export_csv():
         if r["type"] == "redeem" and r["principal_amount"] is not None:
             gain = f"{(r['amount'] - r['principal_amount']) / 100:.2f}"
         w.writerow([
-            r["date"], r["type"].title(), f"{r['amount'] / 100:.2f}", r["category"] or "",
-            r["from_account"] or "", r["to_account"] or "", r["payment_mode"] or "",
+            r["date"], r["type"].title(), f"{r['amount'] / 100:.2f}", _cell(r["category"]),
+            _cell(r["from_account"]), _cell(r["to_account"]), _cell(r["payment_mode"]),
             f"{r['principal_amount'] / 100:.2f}" if r["principal_amount"] is not None else "", gain,
-            r["note"] or "",
+            _cell(r["note"]),
         ])
     name = f"expenses_{datetime.now().strftime('%Y-%m-%d')}.csv"
     return Response(buf.getvalue(), mimetype="text/csv",

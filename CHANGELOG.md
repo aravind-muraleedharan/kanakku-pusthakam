@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.1.0 (2026-10-13)
+
+### New
+- **Money Manager:** banks (savings / current / salary), credit cards (issuer, limit, bill day, due day), cash,
+  investments and loans on one page, with net worth
+- **Investments** with a type per investment and its own calculation:
+  - Fixed Deposit (interest payouts or cumulative, tenure in years + months + days, the bank it's held at)
+  - Recurring Deposit (due day, instalments already paid, missed instalments)
+  - PPF (yearly deposits, monthly lowest-balance interest)
+  - Stocks: trading journal with CNC buy / sell, MTF buy / sell, intraday and others (named by you), charges,
+    dividends (kept out of the account's value, since they're paid to your bank), and a profit goal
+  - Gold coins and silver bars: purchases with date, amount, rate, weight, bill name, payment account, document
+  - Gold savings scheme ("Gold Tree"): monthly amount, months paid and missed, grams so far
+  - Chit fund: monthly instalment, due day, instalments already paid, prize
+  - Other holdings with a current value you type in
+- **Close** an investment (matured, broken early, sold out): the closing amount and transaction are recorded;
+  **Undo closing**; **Delete** removes an investment with all its records (a backup is saved first)
+- **Loans & EMIs:** credit card EMIs and personal loans, schedule, prepayments (reduce tenure or EMI), loans that
+  were already running, undo last action; only interest counts as an expense
+- **Dashboard:** net worth (have vs owe), investments by type, coming up (EMIs, instalments, interest payouts)
+- **Backup to a folder** (pen drive, other disk) and **restore** from a backup
+- Payment modes **Reward Points** and **Other** (Other asks what it was)
+
+### Changed
+- Automatic backup once a week (and before upgrades and restores); the newest 10 are kept
+- Dropdowns no longer change when the mouse wheel scrolls over them after a pick
+- Werkzeug updated to 3.1.9 in the bundled libraries
+
+### Security
+- The app refuses requests that aren't addressed to this computer (127.0.0.1 / localhost), which blocks
+  "DNS rebinding" from web pages; this also protects the password-reset link
+- Database, key and backup files are readable only by you (folders 700, files 600)
+- The browser no longer remembers what you type in the app's fields (form history is off; login fields unchanged)
+- Account names are always shown as plain text in the transactions list
+
+### Upgrading
+`git pull`, then start the app as usual. Database changes are applied automatically, after a backup.
+
 ## 1.0.0 (2026-10-07)
 
 First public release.

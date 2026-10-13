@@ -1,8 +1,8 @@
 # Kanakku Pusthakam
 
-**A private, offline personal account book.** Track income, expenses, credit cards and investments, and see
-where your money goes: month by month and category by category. It runs on your own computer; your data never
-leaves it.
+**A private, offline personal account book.** Track income, expenses, credit cards, investments and loans, see
+your net worth, and see where your money goes: month by month and category by category. It runs on your own
+computer; your data never leaves it.
 
 *Kanakku Pusthakam (കണക്കു പുസ്തകം) is Malayalam for "account book".*
 
@@ -34,19 +34,33 @@ Stop the app with **Ctrl+C** in the terminal.
   (UPI, card, cash…) picked from the account
 - **Credit cards done right:** a card swipe is the expense; paying the bill is a transfer, so nothing is counted twice.
   The dashboard shows what you owe on each card
-- **Investments aren't spending:** chitty, RD, FD, mutual fund instalments are tracked as principal; when they
-  mature only the gain (or loss) counts as income
+- **Money Manager:** one page for everything you have and owe (banks, cards with limit and due date, cash,
+  investments, loans) and your **net worth**
+- **Investments aren't spending:** money put in is tracked as principal; when it matures only the gain (or loss)
+  counts as income. Built-in types with their own maths:
+  - **Fixed and recurring deposits:** interest, maturity value, instalment due dates; tenure in years + months + days
+  - **PPF:** yearly deposits with monthly lowest-balance interest
+  - **Stocks:** a trading journal (CNC / MTF buy and sell, intraday, others), charges, dividends, a profit goal
+  - **Gold coins and silver bars:** each purchase with weight, rate and bill; **gold savings schemes** counted per month
+  - **Chit funds:** instalments paid and missed, the prize, closing
+  - **Close** an investment (matured, broken early, sold) and the closing is recorded; **delete** removes it completely
+- **Loans & EMIs:** credit card EMIs and personal loans with the full schedule, interest worked out from the EMI,
+  prepayments (reduce tenure or EMI), and only the interest counted as an expense
+- **Coming up:** the next EMIs, deposit instalments and interest payouts on the dashboard
 - **Reports:** monthly income / expense / savings, category totals, a month × category heat map,
   spending by payment mode; any period including the Indian financial year (Apr–Mar)
 - **Starting balances "as on" a date** for every bank account, card, cash and investment
 - **Secure login:** password + authenticator app (Google / Microsoft Authenticator, Authy), password reset by email
 - **Light, dark and auto theme**, works on phone-sized screens
-- **Your data stays yours:** one SQLite file, automatic daily backups, CSV export for Excel
+- **Your data stays yours:** one SQLite file, automatic backups, backup to a pen drive or other folder,
+  restore from a backup, CSV export for Excel
 
 | | |
 | --- | --- |
-| ![Add an entry](docs/screenshots/add-entry.png) | ![Dark theme](docs/screenshots/dashboard-dark.png) |
-| ![Month × category](docs/screenshots/month-category.png) | ![Login with authenticator](docs/screenshots/login-code.png) |
+| ![Money Manager](docs/screenshots/money-manager.png) | ![Investments](docs/screenshots/investments.png) |
+| ![Loans and EMIs](docs/screenshots/loans.png) | ![Dark theme](docs/screenshots/dashboard-dark.png) |
+| ![Add an entry](docs/screenshots/add-entry.png) | ![Month × category](docs/screenshots/month-category.png) |
+| ![Login with authenticator](docs/screenshots/login-code.png) | |
 
 ## How it counts money
 
@@ -57,13 +71,15 @@ Stop the app with **Ctrl+C** in the terminal.
 | Transfer | Paying the credit card bill; ATM withdrawal | Neither, so nothing is counted twice |
 | Invest | ₹5,000 RD instalment | "Invested", not an expense |
 | Redeem | RD matures: ₹63,200 back for ₹60,000 put in | Only the ₹3,200 gain is income |
+| Loan EMI | ₹10,030 EMI: ₹7,900 principal + ₹2,130 interest | Only the interest is an expense |
 
 ## Your data
 
 - Everything is in `data/expenses.db` (git-ignored). Back it up by copying the `backups/` folder somewhere safe.
-- A backup is taken automatically on the first start each day and before any database upgrade.
+- A backup is taken automatically once a week and before any database upgrade; the newest 10 are kept.
   **Settings → Backup & export** makes one on demand and exports all entries to CSV.
-- To restore: stop the app, copy a file from `backups/` over `data/expenses.db`, start again.
+- **Settings → Backup & export** can also copy the database to any folder (a pen drive, another disk) and restore
+  from a backup file (your password is asked first; your current data is saved before restoring).
 - Updating the app (`git pull`) never touches your data; database changes are applied automatically.
 
 ## Login and recovery
@@ -82,7 +98,7 @@ See [SECURITY.md](SECURITY.md) for what the login does and doesn't protect.
 ├── start.sh               start + open the browser
 ├── backend/               Flask JSON API
 │   ├── api/               HTTP routes, one blueprint per feature
-│   ├── services/          business rules and SQL (entries, reports, auth, TOTP, email)
+│   ├── services/          business rules and SQL (entries, reports, investments, loans, auth, backup)
 │   └── migrations/        numbered SQL files, applied automatically on start
 ├── frontend/              HTML, CSS and plain JavaScript modules (no build step)
 ├── tests/                 python3 -m unittest discover tests -v
@@ -94,15 +110,14 @@ See [SECURITY.md](SECURITY.md) for what the login does and doesn't protect.
 ## Development
 
 ```bash
-python3 -m unittest discover tests -v     # 25 tests, uses a temporary database
+python3 -m unittest discover tests -v     # 68 tests, uses a temporary database
 python3 run.py --demo                     # sample data for trying changes
 ```
 
 Database changes go in a new `backend/migrations/NNN_name.sql`. New features: a blueprint in `backend/api/`,
 logic in `backend/services/`, a view in `frontend/js/views/`. See [docs/DESIGN.md](docs/DESIGN.md).
 
-Planned: investment tracking with current value and net worth, budgets, recurring entries, bank statement import,
-Windows and macOS support.
+Planned: budgets, recurring entries, bank statement import, Windows and macOS support.
 
 ## License
 

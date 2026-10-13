@@ -1,4 +1,5 @@
 // Add / edit an entry. Fields change with the entry type.
+import { investmentForm } from "./investments.js";
 import { api } from "../api.js";
 import { active, invalidateMasters, masters } from "../state.js";
 import {
@@ -9,7 +10,7 @@ const TYPE_HELP = {
   expense: "Money spent. Card swipes are recorded here, on the day you pay.",
   income: "Money received: salary, bonus, interest, reimbursements.",
   transfer: "Moving your own money: paying a credit card bill, ATM withdrawal, bank to bank. Not counted as income or expense.",
-  invest: "Putting money into Chitty, RD, FD, mutual funds, PPF… Not counted as expense.",
+  invest: "Putting money into stocks, FD, RD, PPF, chit fund, gold… Not counted as expense.",
   redeem: "Money coming back from an investment. Only the gain (or loss) counts as income.",
 };
 
@@ -17,7 +18,7 @@ const TYPE_HELP = {
 const SIDES = {
   expense: { from: ["bank", "credit_card", "cash"], to: null },
   income: { from: null, to: ["bank", "cash", "credit_card"] },
-  transfer: { from: ["bank", "credit_card", "cash"], to: ["bank", "credit_card", "cash"] },
+  transfer: { from: ["bank", "credit_card", "cash", "investment", "loan"], to: ["bank", "credit_card", "cash", "loan"] },
   invest: { from: ["bank", "credit_card", "cash"], to: ["investment"] },
   redeem: { from: ["investment"], to: ["bank", "cash"] },
 };
@@ -43,12 +44,12 @@ export async function render(params) {
       type: editing.type, date: editing.date, amount: editing.amount ?? "",
       category_id: editing.category_id ?? "", from_account_id: editing.from_account_id ?? "",
       to_account_id: editing.to_account_id ?? "", payment_mode_id: editing.payment_mode_id ?? "",
-      principal_amount: editing.principal_amount ?? "", note: editing.note ?? "",
+      payment_mode_other: editing.payment_mode_other ?? "", principal_amount: editing.principal_amount ?? "", note: editing.note ?? "",
     };
   } else {
     const type = TYPE_LABEL[params.type] ? params.type : store.get("lastType", "expense");
     v = { type, date: todayISO(), amount: "", category_id: "", from_account_id: "", to_account_id: "",
-          payment_mode_id: "", principal_amount: "", note: "" };
+          payment_mode_id: "", payment_mode_other: "", principal_amount: "", note: "" };
     applyRemembered();
   }
   draw();
@@ -69,9 +70,17 @@ function applyRemembered() {
   }
 }
 
+const isShare = (id) => M.accounts.some((a) => String(a.id) === String(id) && a.inv_type === "share");
+
 function accountsFor(side) {
   const kinds = SIDES[v.type][side] || [];
-  return active(M.accounts).filter((a) => kinds.includes(a.kind) || String(a.id) === String(v[side + "_account_id"]));
+  const ok = (a) => {
+    if (v.type === "transfer" && side === "from" && a.kind === "investment") return a.inv_type === "share";  // share withdrawal
+    if (v.type === "transfer" && side === "to" && v.from_account_id && isShare(v.from_account_id)) return ["bank", "cash"].includes(a.kind);
+    if (v.type === "redeem" && a.kind === "investment") return a.inv_type !== "share";   // shares are never redeemed
+    return kinds.includes(a.kind);
+  };
+  return active(M.accounts).filter((a) => ok(a) || String(a.id) === String(v[side + "_account_id"]));
 }
 
 function defaultMode() {
@@ -86,6 +95,14 @@ function defaultMode() {
   }
   if (mode) v.payment_mode_id = mode.id;
 }
+
+const isOtherMode = () => M.payment_modes.find((m) => String(m.id) === String(v.payment_mode_id))?.name.trim().toLowerCase() === "other";
+const syncOtherMode = () => {
+  const box = $("#pm-other");
+  if (!box) return;
+  box.classList.toggle("hidden", !isOtherMode());
+  if (!isOtherMode()) v.payment_mode_other = "";
+};
 
 const showMode = () => ["expense", "transfer", "invest"].includes(v.type);
 
@@ -113,9 +130,11 @@ function investmentInfo() {
   return { open };
 }
 
+const REQUIRED = ["amount", "date", "category_id", "from_account_id", "to_account_id", "principal_amount", "payment_mode_other"];
+
 function field(name, label, control, { full = false, hint = "" } = {}) {
   return `<div class="field ${full ? "full" : ""}" data-field="${name}">
-    <label for="f-${name}">${label}</label>${control}
+    <label for="f-${name}" class="${REQUIRED.includes(name) ? "req" : ""}">${label}</label>${control}
     ${hint ? `<div class="hint">${hint}</div>` : ""}<div class="err hidden"></div></div>`;
 }
 
@@ -126,12 +145,12 @@ function draw() {
   const cats = categoryList();
   let html = `
     <div class="page-head">
-      <div><h1>${editing ? "Edit entry" : "Add entry"}</h1>
+      <div><h1>${editing ? "Edit transaction" : "Add transaction"}</h1>
       ${editing ? `<div class="sub small faint">Created ${esc(editing.created_at)}${editing.updated_at !== editing.created_at ? ` · edited ${esc(editing.updated_at)}` : ""}</div>` : ""}</div>
-      <a class="btn btn-ghost" href="#/entries">← Entries</a>
+      <a class="btn btn-ghost" href="#/entries">← Transactions</a>
     </div>
     <form class="panel panel-pad form-card" id="entry-form" novalidate autocomplete="off">
-      <div class="seg types" role="tablist" aria-label="Entry type">
+      <div class="seg types" role="tablist" aria-label="Transaction type">
         ${Object.entries(TYPE_LABEL).map(([k, l]) => `<button type="button" data-v="${k}" class="${k === t ? "on" : ""}" role="tab" aria-selected="${k === t}">${l}</button>`).join("")}
       </div>
       <p class="small muted" style="margin:10px 0 18px">${TYPE_HELP[t]}</p>
@@ -169,8 +188,10 @@ function draw() {
   if (showMode()) {
     html += field("payment_mode_id", "Payment mode",
       `<select id="f-payment_mode_id" name="payment_mode_id">${options(active(M.payment_modes).concat(M.payment_modes.filter((m) => !m.active && String(m.id) === String(v.payment_mode_id))), v.payment_mode_id, { placeholder: "—" })}</select>`);
+    html += `<div id="pm-other" class="${isOtherMode() ? "" : "hidden"}">` + field("payment_mode_other", "Which payment mode?",
+      `<input id="f-payment_mode_other" name="payment_mode_other" maxlength="60" value="${esc(v.payment_mode_other)}" placeholder="e.g. Amazon Pay, gift card">`) + `</div>`;
   }
-  html += field("note", "Note <span class=\"faint\">(optional)</span>",
+  html += field("note", "Note",
     `<textarea id="f-note" name="note" rows="2" maxlength="500" placeholder="${t === "expense" ? "e.g. Swiggy dinner, electricity for September" : ""}">${esc(v.note)}</textarea>`, { full: true });
   html += `</div>
       <div class="form-actions">
@@ -190,7 +211,7 @@ function draw() {
 
 function redeemHint() {
   const info = investmentInfo();
-  return info ? `Principal still invested here: <b>${money(info.open)}</b>` : "";
+  return info ? `Amount invested here: <b>${money(info.open)}</b>` : "";
 }
 
 function updateGain() {
@@ -202,7 +223,7 @@ function updateGain() {
   const gain = Math.round((amt - pr) * 100) / 100;
   box.innerHTML = gain >= 0
     ? `<div class="callout gain"><strong style="color:inherit">${money(gain)} gain</strong> will be counted as income (Investment Returns). ${money(pr)} principal is your own money coming back.</div>`
-    : `<div class="callout loss"><strong style="color:inherit">${money(gain)} loss</strong> will be recorded under Investment Returns (e.g. chitty discount, FD break penalty).</div>`;
+    : `<div class="callout loss"><strong style="color:inherit">${money(gain)} loss</strong> will be recorded under Investment Returns (e.g. chit fund discount, FD break penalty).</div>`;
 }
 
 function readForm() {
@@ -234,8 +255,15 @@ function bind() {
   form.addEventListener("change", (e) => {
     if (!e.target.name) return;
     v[e.target.name] = e.target.value;
+    if (e.target.name === "payment_mode_id") { syncOtherMode(); if (isOtherMode()) $("#f-payment_mode_other")?.focus(); }
     if (e.target.name === "from_account_id") {
-      if (showMode()) { defaultMode(); const pm = $("#f-payment_mode_id"); if (pm) pm.value = v.payment_mode_id; }
+      if (showMode()) { defaultMode(); const pm = $("#f-payment_mode_id"); if (pm) pm.value = v.payment_mode_id; syncOtherMode(); }
+      if (v.type === "transfer") {          // a share withdrawal can only go to a bank or cash account
+        const list = accountsFor("to");
+        if (!list.some((a) => String(a.id) === String(v.to_account_id))) v.to_account_id = list.find((a) => String(a.id) !== String(v.from_account_id))?.id ?? "";
+        const to = $("#f-to_account_id");
+        if (to) { to.innerHTML = accountOptions("to"); to.value = v.to_account_id; }
+      }
       if (v.type === "redeem") {
         const info = investmentInfo();
         if (info && !editing) v.principal_amount = info.open > 0 ? info.open : "";
@@ -279,7 +307,7 @@ async function save(another) {
   try {
     if (editing) {
       await api.updateEntry(editing.id, payload);
-      toast("Entry updated");
+      toast("Transaction updated");
       history.length > 1 ? history.back() : (location.hash = "#/entries");
       return;
     }
@@ -300,11 +328,11 @@ async function save(another) {
 }
 
 async function remove() {
-  const ok = await confirmDialog("Delete this entry?", `${TYPE_LABEL[editing.type]} of ${money(editing.amount)} on ${editing.date}. This can't be undone.`);
+  const ok = await confirmDialog("Delete this transaction?", `${TYPE_LABEL[editing.type]} of ${money(editing.amount)} on ${editing.date}. This can't be undone.`);
   if (!ok) return;
   try {
     await api.deleteEntry(editing.id);
-    toast("Entry deleted");
+    toast("Transaction deleted");
     location.hash = "#/entries";
   } catch (err) {
     toast(err.message, true);
@@ -329,13 +357,22 @@ async function newCategory() {
 
 async function newAccount(side) {
   readForm();
-  const kinds = SIDES[v.type][side];
+  const kinds = SIDES[v.type][side].filter((k) => !(v.type === "transfer" && ["investment", "loan"].includes(k)));
+  if (kinds.length === 1 && kinds[0] === "investment") {       // invest / redeem: ask what kind of investment
+    const inv = await investmentForm(null);
+    if (!inv) return;
+    invalidateMasters();
+    [M, balances] = await Promise.all([masters(true), api.balances()]);
+    v[side + "_account_id"] = inv.account.id;
+    draw();
+    return;
+  }
   const created = await modal({
     title: "New account",
     body: `
-      <div class="field"><label>Name</label><input name="name" required maxlength="80" placeholder="${kinds.includes("investment") ? "e.g. KSFE Chitty, Federal RD" : "e.g. ICICI, Amazon Pay ICICI Card"}"></div>
-      <div class="field"><label>Type</label><select name="kind">${kinds.map((k) => `<option value="${k}">${KIND_LABEL[k]}</option>`).join("")}</select></div>
-      <div class="field"><label>Opening balance <span class="faint">(optional)</span></label><input name="opening_balance" inputmode="decimal" placeholder="0">
+      <div class="field"><label class="req">Name</label><input name="name" required maxlength="80" placeholder="${kinds.includes("investment") ? "e.g. KSFE Chit Fund, Federal RD" : "e.g. ICICI, Amazon Pay ICICI Card"}"></div>
+      <div class="field"><label class="req">Type</label><select name="kind">${kinds.map((k) => `<option value="${k}">${KIND_LABEL[k]}</option>`).join("")}</select></div>
+      <div class="field"><label>Opening balance</label><input name="opening_balance" inputmode="decimal" placeholder="0">
         <div class="hint">Bank/cash: current balance. Credit card: amount currently owed. Investment: principal already invested.</div></div>`,
     onSubmit: (vals) => api.createMaster("accounts", vals),
   });

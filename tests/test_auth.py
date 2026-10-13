@@ -120,6 +120,20 @@ class AuthTest(unittest.TestCase):
             s.update(cookie_session)
         self.assertEqual(raw.post("/api/system/backups").status_code, 400)
 
+    def test_only_answers_on_this_computer(self):
+        # DNS rebinding: a web page's own name pointed at 127.0.0.1 must not reach the app
+        for host in ("evil.example", "evil.example:5000", "127.0.0.1.evil.example"):
+            r = self.c.get("/api/auth/status", headers={"Host": host})
+            self.assertEqual(r.status_code, 403, host)
+            self.assertEqual(self.c.get("/", headers={"Host": host}).status_code, 403, host)
+        for host in ("127.0.0.1:5000", "localhost:9999", "[::1]:5000", "localhost"):
+            self.assertEqual(self.c.get("/api/auth/status", headers={"Host": host}).status_code, 200, host)
+
+    def test_data_files_private(self):
+        mode = lambda p: os.stat(p).st_mode & 0o777
+        self.assertEqual(mode(self.tmp.name + "/t.db"), 0o600)
+        self.assertEqual(mode(self.tmp.name + "/b"), 0o700)
+
     def test_idle_timeout(self):
         self.register()
         with self.c.session_transaction() as s:
@@ -169,13 +183,13 @@ class AuthTest(unittest.TestCase):
 
     def test_mail_settings_hide_password(self):
         self.register()
-        r = self.c.put("/api/auth/mail-settings", json={"smtp_host": "smtp.gmail.com", "smtp_port": 587,
-                                                         "smtp_user": EMAIL, "smtp_password": "abcd efgh ijkl mnop"})
+        r = self.c.put("/api/auth/mail-settings", json={"smtp_host": "mail.example.invalid", "smtp_port": 587,
+                                                         "smtp_user": EMAIL, "smtp_password": "FAKE-test-value"})
         body = r.get_json()
         self.assertTrue(body["configured"])
         self.assertTrue(body["password_set"])
         self.assertNotIn("smtp_password", body)
-        self.assertNotIn("abcd", str(self.c.get("/api/auth/security").get_json()))
+        self.assertNotIn("FAKE-test", str(self.c.get("/api/auth/security").get_json()))
 
     def test_terminal_reset_mfa(self):
         from backend import db

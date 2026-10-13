@@ -31,6 +31,12 @@ def _range():
     return dfrom, dto
 
 
+@bp.get("/reports/money")
+def money():
+    from ..services import money as money_svc
+    return jsonify(money_svc.overview())
+
+
 @bp.get("/reports/dashboard")
 def dashboard():
     return jsonify(svc.dashboard(_month()))

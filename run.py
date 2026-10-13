@@ -16,6 +16,8 @@ import sys
 import threading
 import webbrowser
 
+sys.dont_write_bytecode = True     # no __pycache__ folders: nothing stale is left behind after updates
+
 if sys.version_info < (3, 10):
     sys.exit(f"Kanakku Pusthakam needs Python 3.10 or newer; this is Python {sys.version.split()[0]}. "
              "Install a newer Python from https://www.python.org/downloads/")
@@ -35,6 +37,8 @@ def main():
     parser = argparse.ArgumentParser(description="Kanakku Pusthakam")
     parser.add_argument("--host", default=config.HOST)
     parser.add_argument("--port", type=int, default=config.PORT)
+    parser.add_argument("--allow-network", action="store_true",
+                        help="allow a --host other than this computer (other devices could then reach the login page)")
     parser.add_argument("--open", action="store_true", help="open the app in the browser")
     parser.add_argument("--reset-password", action="store_true", help="set a new login password (no email needed)")
     parser.add_argument("--reset-mfa", action="store_true", help="remove the authenticator; set it up again at next login")
@@ -47,10 +51,15 @@ def main():
         config.DB_PATH = os.path.join(demo_dir, "expenses.db")
         config.BACKUP_DIR = os.path.join(demo_dir, "backups")
 
+    if args.host not in ("127.0.0.1", "localhost", "::1") and not args.allow_network:
+        sys.exit(f"Refusing to listen on {args.host}: that would let other devices on your network reach the app.\n"
+                 "It's meant to run on this computer only (127.0.0.1). If you really need it, add --allow-network.")
+
     if args.reset_password or args.reset_mfa:
         return reset_from_terminal(args)
 
-    app = create_app({"DB_PATH": config.DB_PATH, "BACKUP_DIR": config.BACKUP_DIR})
+    app = create_app({"DB_PATH": config.DB_PATH, "BACKUP_DIR": config.BACKUP_DIR,
+                      "ALLOWED_HOSTS": [args.host] if args.allow_network else []})
     if args.demo:
         from backend.demo import seed_demo
         if seed_demo(app):

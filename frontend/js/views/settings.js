@@ -1,10 +1,9 @@
-// Settings: accounts, categories, payment modes, security (login, authenticator, email), backups and export.
+// Settings: categories, payment modes, security (login, authenticator, email), backups and export.
 import { api } from "../api.js";
 import { invalidateMasters, masters } from "../state.js";
-import { $, $$, confirmDialog, esc, KIND_LABEL, toast } from "../util.js";
+import { $, $$, confirmDialog, dateLabel, esc, KIND_LABEL, modal, toast } from "../util.js";
 
 const SECTIONS = {
-  accounts: "Accounts",
   categories: "Categories",
   payment_modes: "Payment modes",
   security: "Security",
@@ -12,15 +11,15 @@ const SECTIONS = {
 };
 
 export async function render(params) {
-  const sec = SECTIONS[params.s] ? params.s : "accounts";
+  if (params.s === "accounts") { location.hash = "#/money"; return; }
+  const sec = SECTIONS[params.s] ? params.s : "categories";
   const M = await masters(true);
   $("#view").innerHTML = `
-    <div class="page-head"><div><h1>Settings</h1><div class="sub small muted">Add, rename or deactivate items. Deactivated items are hidden from the form but past entries keep them.</div></div></div>
+    <div class="page-head"><div><h1>Settings</h1><div class="sub small muted">Add, rename or deactivate items. Deactivated items are hidden from the form but past transactions keep them.</div></div></div>
     <div class="tabs">${Object.entries(SECTIONS).map(([k, l]) => `<button data-s="${k}" class="${k === sec ? "on" : ""}">${l}</button>`).join("")}</div>
     <div id="set-body"></div>`;
   $$(".tabs button").forEach((b) => b.addEventListener("click", () => { location.hash = `#/settings?s=${b.dataset.s}`; }));
   const body = $("#set-body");
-  if (sec === "accounts") accounts(body, M.accounts);
   if (sec === "categories") categories(body, M.categories);
   if (sec === "payment_modes") simple(body, "payment_modes", M.payment_modes, "Payment mode");
   if (sec === "security") await security(body);
@@ -62,55 +61,13 @@ function rowActions(item) {
   </td>`;
 }
 
-function accounts(body, list) {
-  const kindSel = (name, value, locked) => `<select name="${name}" ${locked ? "disabled title=\"Can't change once entries use it\"" : ""}>
-    ${Object.entries(KIND_LABEL).map(([k, l]) => `<option value="${k}" ${k === value ? "selected" : ""}>${l}</option>`).join("")}</select>`;
-  body.innerHTML = `
-    <section class="panel">
-      <div class="table-wrap"><table class="master-table">
-        <thead><tr><th>Name</th><th>Type</th><th class="num">Starting balance (₹)</th><th>As on</th><th>Active</th><th class="num">Entries</th><th></th></tr></thead>
-        <tbody>${list.map((a) => `
-          <tr data-id="${a.id}" class="${a.active ? "" : "inactive"}">
-            <td><input type="text" name="name" value="${esc(a.name)}" maxlength="80"></td>
-            <td>${kindSel("kind", a.kind, a.used > 0)}</td>
-            <td><input type="number" step="0.01" name="opening_balance" value="${a.opening_balance}" class="right" style="max-width:150px"></td>
-            <td><input type="date" name="opening_date" value="${esc(a.opening_date || "")}"></td>
-            <td><input type="checkbox" name="active" ${a.active ? "checked" : ""}></td>
-            <td class="num muted">${a.used}</td>
-            ${rowActions(a)}
-          </tr>`).join("")}</tbody>
-      </table></div>
-      <form class="add-row" id="add-form">
-        <input type="text" name="name" placeholder="New account, e.g. ICICI, KSFE Chitty, Federal RD" required maxlength="80">
-        ${kindSel("kind", "bank", false)}
-        <input type="number" step="0.01" name="opening_balance" placeholder="Starting balance" style="max-width:170px">
-        <input type="date" name="opening_date" title="As on date">
-        <button class="btn btn-primary">Add account</button>
-      </form>
-    </section>
-    <div class="callout small" style="margin-top:14px">
-      <strong>Starting balance, as on a date:</strong> Bank / cash = balance on that date. Credit card = amount owed.
-      Investment = principal invested so far. Entries from that date onward update it.
-      <a href="#/setup">Set all starting balances on one screen →</a>
-    </div>`;
-  bindTable(body, "accounts", list, (tr) => ({
-    name: $("[name=name]", tr).value, kind: $("[name=kind]", tr).value,
-    opening_balance: $("[name=opening_balance]", tr).value, opening_date: $("[name=opening_date]", tr).value,
-    active: $("[name=active]", tr).checked,
-  }));
-  $("#add-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    addRow("accounts", Object.fromEntries(new FormData(e.target).entries()));
-  });
-}
-
 function categories(body, list) {
   const block = (kind) => {
     const items = list.filter((c) => c.kind === kind);
     return `<section class="panel" style="margin-bottom:16px">
       <div class="panel-head" style="padding-bottom:12px"><h2>${kind === "expense" ? "Expense" : "Income"} categories</h2><span class="small faint">${items.length}</span></div>
       <div class="table-wrap"><table class="master-table">
-        <thead><tr><th>Name</th><th class="hide-sm">Description</th><th>Active</th><th class="num">Entries</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th class="hide-sm">Description</th><th>Active</th><th class="num">Transactions</th><th></th></tr></thead>
         <tbody>${items.map((c) => c.is_system ? `
           <tr><td><b>${esc(c.name)}</b></td><td class="hide-sm small muted">${esc(c.description || "")}</td><td>✓</td><td class="num muted">${c.used}</td><td class="small faint right">automatic</td></tr>` : `
           <tr data-id="${c.id}" class="${c.active ? "" : "inactive"}">
@@ -123,7 +80,7 @@ function categories(body, list) {
       </table></div>
       <form class="add-row" data-kind="${kind}">
         <input type="text" name="name" placeholder="New ${kind} category" required maxlength="80">
-        <input type="text" name="description" placeholder="Description (optional)" class="hide-sm">
+        <input type="text" name="description" placeholder="Description" class="hide-sm">
         <button class="btn btn-primary">Add</button>
       </form>
     </section>`;
@@ -142,7 +99,7 @@ function simple(body, table, list, label) {
   body.innerHTML = `
     <section class="panel" style="max-width:640px">
       <div class="table-wrap"><table class="master-table">
-        <thead><tr><th>Name</th><th>Active</th><th class="num">Entries</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Active</th><th class="num">Transactions</th><th></th></tr></thead>
         <tbody>${list.map((m) => `
           <tr data-id="${m.id}" class="${m.active ? "" : "inactive"}">
             <td><input type="text" name="name" value="${esc(m.name)}" maxlength="80"></td>
@@ -176,36 +133,118 @@ function bindTable(body, table, list, read) {
 
 async function data(body) {
   const [info, backups] = await Promise.all([api.info(), api.backups()]);
+  const range = info.entries ? `${esc(dateLabel(info.first_entry))} – ${esc(dateLabel(info.last_entry))}` : "No transactions yet";
   body.innerHTML = `
     <div class="grid grid-2">
+      <div class="stack">
+        <section class="panel panel-pad">
+          <h2>Your database</h2>
+          <table style="margin-top:10px"><tbody>
+            <tr><td class="muted">Transactions recorded</td><td class="num">${info.entries.toLocaleString("en-IN")}</td></tr>
+            <tr><td class="muted">Dates covered</td><td class="num">${range}</td></tr>
+            <tr><td class="muted">Stored at</td><td class="small" style="word-break:break-all">${esc(info.db_path)}</td></tr>
+            <tr><td class="muted">Version</td><td class="small">App ${esc(info.app_version)} · database ${info.schema_version}</td></tr>
+          </tbody></table>
+          <div class="form-actions"><a class="btn" href="${api.exportUrl({})}">Export all transactions (CSV)</a></div>
+        </section>
+
+        <section class="panel panel-pad">
+          <h2>Back up to a folder</h2>
+          <p class="small muted" style="margin:6px 0 12px">Saves a copy of your database there, named with today's date and time.
+            A pen drive or another disk keeps a copy safe even if this computer fails.</p>
+          <form id="bk-form" class="stack" style="gap:10px" novalidate>
+            <div class="field" data-field="path"><label class="req">Folder (full path)</label>
+              <input name="path" id="bk-path" value="${esc(info.backup_folder || "")}" placeholder="e.g. /media/you/PENDRIVE/Backups" autocomplete="off" spellcheck="false">
+              <div class="err hidden"></div></div>
+            <div><button class="btn btn-primary">Back up now</button></div>
+          </form>
+        </section>
+
+        <section class="panel panel-pad">
+          <h2>Restore from a file</h2>
+          <p class="small muted" style="margin:6px 0 12px">Replaces <b>all</b> your current data with the backup file you choose.
+            Your current data is saved to the backups list first, so you can undo it.</p>
+          <form id="rs-form" class="stack" style="gap:10px" novalidate>
+            <div class="field" data-field="file"><label class="req">Backup file (.db)</label>
+              <input type="file" name="file" accept=".db,application/x-sqlite3,application/vnd.sqlite3"><div class="err hidden"></div></div>
+            <div class="field" data-field="password"><label class="req">Your password</label>
+              <input type="password" name="password" autocomplete="current-password"><div class="err hidden"></div></div>
+            <div><button class="btn btn-danger">Restore</button></div>
+          </form>
+        </section>
+      </div>
+
       <section class="panel panel-pad">
-        <h2>Your data</h2>
-        <table style="margin-top:10px"><tbody>
-          <tr><td class="muted">Entries</td><td class="num">${info.entries}</td></tr>
-          <tr><td class="muted">First / last entry</td><td class="num">${esc(info.first_entry || "—")} / ${esc(info.last_entry || "—")}</td></tr>
-          <tr><td class="muted">Database file</td><td class="small" style="word-break:break-all">${esc(info.db_path)}</td></tr>
-          <tr><td class="muted">Version</td><td class="small">App ${esc(info.app_version)} · schema ${info.schema_version}</td></tr>
-        </tbody></table>
-        <div class="form-actions">
-          <a class="btn" href="${api.exportUrl({})}">Export all entries (CSV)</a>
-        </div>
-      </section>
-      <section class="panel panel-pad">
-        <h2>Backups</h2>
-        <p class="small muted">A backup is made automatically on the first start each day (the last 60 are kept), and before any database upgrade.
-        Copy the <code>backups</code> folder to a pen drive or cloud drive now and then.</p>
-        <button class="btn btn-primary" id="do-backup">Back up now</button>
-        <div class="table-wrap" style="margin-top:14px;max-height:300px;overflow:auto">
-          <table><thead><tr><th>File</th><th class="num">Size</th></tr></thead>
-          <tbody>${backups.map((b) => `<tr><td class="small">${esc(b.file)}</td><td class="num small muted">${b.size_kb} KB</td></tr>`).join("")
-            || `<tr><td colspan="2" class="small faint">No backups yet</td></tr>`}</tbody></table>
+        <h2>Automatic backups <span class="faint small">· newest 10</span></h2>
+        <p class="small muted" style="margin:6px 0 0">Made once a week (on the first start after 7 days), before any database upgrade, and before a restore.
+          Only the newest 10 are kept; older ones are deleted automatically. They're in <code>${esc(info.backup_dir)}</code>.</p>
+        <div class="table-wrap" style="margin-top:14px;max-height:520px;overflow:auto">
+          <table><thead><tr><th>Backup</th><th class="num">Size</th><th></th></tr></thead>
+          <tbody>${backups.map((b) => `<tr><td><div class="small">${esc(b.created)}</div><div class="cell-sub">${esc(kindOf(b.file))}</div></td>
+            <td class="num small muted">${b.size_kb} KB</td>
+            <td class="right"><button class="btn btn-sm" data-restore="${esc(b.file)}">Restore</button></td></tr>`).join("")
+            || `<tr><td colspan="3" class="small faint">No backups yet</td></tr>`}</tbody></table>
         </div>
       </section>
     </div>`;
-  $("#do-backup").addEventListener("click", async () => {
-    try { const r = await api.backup(); toast(`Backup saved: ${r.file}`); reload(); }
-    catch (e) { toast(e.message, true); }
+
+  const clearErr = (form) => $$(".field", form).forEach((f) => { f.classList.remove("has-error"); $(".err", f)?.classList.add("hidden"); });
+  const showErr = (form, e) => {
+    clearErr(form);
+    const f = e.field && $(`[data-field="${e.field}"]`, form);
+    if (f) { f.classList.add("has-error"); const el = $(".err", f); el.textContent = e.message; el.classList.remove("hidden"); }
+    else toast(e.message, true);
+  };
+
+  $("#bk-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const btn = $("button", ev.target); btn.disabled = true;
+    try {
+      const r = await api.backupTo($("#bk-path").value);
+      clearErr(ev.target);
+      toast(`Backed up to ${r.file}`);
+    } catch (e) { showErr(ev.target, e); }
+    btn.disabled = false;
   });
+
+  const afterRestore = (r) => {
+    toast(`Restored. Your previous data was saved as ${r.saved_current_as}. Please log in again.`);
+    setTimeout(() => { location.hash = "#/dashboard"; location.reload(); }, 1800);
+  };
+
+  $("#rs-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const form = ev.target, fd = new FormData(form);
+    if (!form.file.files.length) return showErr(form, { field: "file", message: "Choose the backup file" });
+    if (!fd.get("password")) return showErr(form, { field: "password", message: "Enter your password" });
+    if (!(await confirmDialog("Restore this backup?", `All current data will be replaced with ${form.file.files[0].name}. Your current data is saved first.`, "Restore"))) return;
+    const btn = $("button", form); btn.disabled = true;
+    try { afterRestore(await api.restoreUpload(fd)); } catch (e) { showErr(form, e); btn.disabled = false; }
+  });
+
+  $$("[data-restore]").forEach((b) => b.addEventListener("click", async () => {
+    const name = b.dataset.restore;
+    const pw = await modal({
+      title: "Restore this backup?",
+      body: `<p class="small muted" style="margin:0">All current data will be replaced with the backup from <b>${esc(backups.find((x) => x.file === name)?.created || name)}</b>.
+        Your current data is saved first, so you can undo this.</p>
+        <div class="field"><label class="req">Your password</label><input type="password" name="password" autocomplete="current-password"></div>`,
+      submitLabel: "Restore",
+      onSubmit: async (v) => {
+        if (!v.password) throw new Error("Enter your password");
+        return api.restoreBackup(name, v.password);
+      },
+    });
+    if (pw) afterRestore(pw);
+  }));
+}
+
+function kindOf(file) {
+  if (file.includes("_pre-restore")) return "Before a restore";
+  if (file.includes("_pre-migration")) return "Before an app update";
+  if (file.includes("_manual")) return "Made by you";
+  if (file.includes("_auto")) return "Weekly automatic";
+  return file;
 }
 
 // ---------------------------------------------------------------- security
@@ -217,7 +256,8 @@ const PRESETS = {
 };
 
 function secField(name, label, value = "", type = "text", extra = "") {
-  return `<div class="field" data-field="${name}"><label>${label}</label>
+  const req = ["smtp_host", "smtp_port", "smtp_user"].includes(name);
+  return `<div class="field" data-field="${name}"><label class="${req ? "req" : ""}">${label}</label>
     <input name="${name}" type="${type}" value="${esc(value)}" ${extra}><div class="err hidden"></div></div>`;
 }
 
@@ -283,7 +323,7 @@ async function security(body) {
             <div class="err hidden"></div></div>
           ${secField("smtp_user", "Email account (login)", m.smtp_user, "email", 'placeholder="you@gmail.com" autocomplete="off"')}
           ${secField("smtp_password", "App password", "", "password", `autocomplete="new-password" placeholder="${m.password_set ? "Saved. Leave blank to keep it" : "16-character app password"}"`)}
-          ${secField("smtp_from", "Send as (optional)", m.smtp_from, "text", 'placeholder="Kanakku Pusthakam <you@gmail.com>"')}
+          ${secField("smtp_from", "Send as", m.smtp_from, "text", 'placeholder="Kanakku Pusthakam <you@gmail.com>"')}
           <details class="small muted"><summary>How to get a Gmail app password</summary>
             <ol style="padding-left:18px;margin:8px 0">
               <li>Turn on 2-Step Verification in your Google Account.</li>

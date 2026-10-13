@@ -65,7 +65,7 @@ export function dayLabel(iso) {
 }
 
 export const TYPE_LABEL = { expense: "Expense", income: "Income", transfer: "Transfer", invest: "Invest", redeem: "Redeem" };
-export const KIND_LABEL = { bank: "Bank", credit_card: "Credit card", cash: "Cash", investment: "Investment" };
+export const KIND_LABEL = { bank: "Bank", credit_card: "Credit card", cash: "Cash", investment: "Investment", loan: "Loan" };
 
 /** Escape text for safe use inside HTML templates. */
 export function esc(s) {
@@ -93,12 +93,12 @@ export function options(list, selected, { placeholder, valueKey = "id", labelKey
 }
 
 /** Small modal dialog. Returns a promise of the form values (or null if cancelled). */
-export function modal({ title, body, submitLabel = "Save", onSubmit }) {
+export function modal({ title, body, submitLabel = "Save", onSubmit, wide = false }) {
   return new Promise((resolve) => {
     const root = $("#modal-root");
     root.innerHTML = `
       <div class="modal-back">
-        <form class="modal panel" novalidate>
+        <form class="modal panel ${wide ? "wide" : ""}" novalidate>
           <h2>${esc(title)}</h2>
           <div class="stack">${body}</div>
           <p class="err small c-expense hidden" data-err></p>

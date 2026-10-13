@@ -177,8 +177,8 @@ def balances(as_of=None):
               COALESCE((SELECT SUM(e.amount) FROM entries e WHERE e.from_account_id = a.id {cond}), 0) AS money_out,
               COALESCE((SELECT SUM(e.amount) FROM entries e
                         WHERE e.type = 'invest' AND e.to_account_id = a.id {cond}), 0) AS invested,
-              COALESCE((SELECT SUM(e.principal_amount) FROM entries e
-                        WHERE e.type = 'redeem' AND e.from_account_id = a.id {cond}), 0) AS principal_out,
+              COALESCE((SELECT SUM(CASE WHEN e.type = 'redeem' THEN e.principal_amount ELSE e.amount END) FROM entries e
+                        WHERE e.type IN ('redeem', 'transfer') AND e.from_account_id = a.id {cond}), 0) AS principal_out,
               COALESCE((SELECT SUM(e.amount - e.principal_amount) FROM entries e
                         WHERE e.type = 'redeem' AND e.from_account_id = a.id {cond}), 0) AS gain
             FROM accounts a ORDER BY a.sort_order, a.name""",
@@ -196,7 +196,7 @@ def balances(as_of=None):
         else:
             bal = r["opening_balance"] + r["money_in"] - r["money_out"]
             item["balance"] = to_rupees(bal)
-            if r["kind"] == "credit_card":
+            if r["kind"] in ("credit_card", "loan"):
                 item["outstanding"] = to_rupees(-bal)
         out.append(item)
     return out
@@ -211,6 +211,29 @@ def dashboard(month):
     cash_like = [b for b in bal if b["kind"] in ("bank", "cash")]
     cards = [b for b in bal if b["kind"] == "credit_card"]
     invest = [b for b in bal if b["kind"] == "investment"]
+    from . import investments as inv_svc      # late import: investments imports entries
+    try:
+        ov = inv_svc.overview()
+        inv_value = ov["totals"]["value"]
+        values = {i["id"]: i for i in ov["items"]}
+        for b in invest:
+            if b["id"] in values:
+                b["value"] = values[b["id"]]["value"]
+                b["inv_type"] = values[b["id"]]["works_like"]
+    except Exception:                          # never let a valuation problem break the dashboard
+        inv_value = round(sum(b["open_principal"] for b in invest), 2)
+    from . import loans as loan_svc
+    try:
+        loans_ov = loan_svc.overview()
+        loans_out = loans_ov["totals"]["outstanding"]
+        loan_items = [{"id": i["id"], "name": i["name"], "loan_type": i["loan_type"],
+                       "outstanding": i["summary"]["outstanding"], "next": i["summary"]["next"]}
+                      for i in loans_ov["items"] if i["status"] == "active"]
+    except Exception:
+        loans_out = round(sum(b["outstanding"] for b in bal if b["kind"] == "loan"), 2)
+        loan_items = []
+    bank_cash = round(sum(b["balance"] for b in cash_like), 2)
+    owed = round(sum(b["outstanding"] for b in cards), 2)
     return {
         "month": month,
         "setup_needed": all(b["opening_date"] is None for b in bal),
@@ -219,9 +242,13 @@ def dashboard(month):
         "top_categories": category_totals("expense", start, end)["items"][:6],
         "last_12_months": monthly(year_start, end),
         "balances": bal,
+        "loans": loan_items,
         "totals": {
-            "bank_and_cash": round(sum(b["balance"] for b in cash_like), 2),
-            "card_outstanding": round(sum(b["outstanding"] for b in cards), 2),
+            "bank_and_cash": bank_cash,
+            "card_outstanding": owed,
             "invested_principal": round(sum(b["open_principal"] for b in invest), 2),
+            "investments_value": inv_value,
+            "loans_outstanding": loans_out,
+            "net_worth": round(bank_cash + inv_value - owed - loans_out, 2),
         },
     }

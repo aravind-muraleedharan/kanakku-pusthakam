@@ -14,4 +14,3 @@ EXPORT_DIR = os.path.join(BASE_DIR, "exports")
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 MIGRATIONS_DIR = os.path.join(BASE_DIR, "backend", "migrations")
 
-KEEP_DAILY_BACKUPS = int(os.environ.get("AET_KEEP_BACKUPS", "60"))   # automatic backups to keep
