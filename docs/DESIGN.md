@@ -1,4 +1,4 @@
-# Design — Kanakku Pusthakam (Phase 1)
+# Design — Kanakku Pusthakam
 
 A locally hosted web app for recording income and expenses by hand and seeing monthly and
 category-wise totals. Built so investments and other modules can be added later without re-entering data.
