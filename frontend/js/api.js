@@ -76,6 +76,17 @@ export const api = {
   deleteLoan: (id) => request("DELETE", `/api/loans/${id}`),
   loanPost: (id, path, data) => request("POST", `/api/loans/${id}/${path}`, data || {}),
 
+  // monthly budget: own items, up to three months
+  budget: () => request("GET", "/api/budget"),
+  budgetAddItem: (data) => request("POST", "/api/budget/items", data),
+  budgetRenameItem: (id, data) => request("PUT", `/api/budget/items/${id}`, data),
+  budgetDeleteItem: (id) => request("DELETE", `/api/budget/items/${id}`),
+  budgetSave: (month, items) => request("PUT", `/api/budget/${month}`, { items }),
+  budgetCopy: (month, from) => request("POST", `/api/budget/${month}/copy`, { from }),
+  budgetClear: (month) => request("POST", `/api/budget/${month}/clear`),
+  budgetAddMonth: (month) => request("POST", "/api/budget/months", { month }),
+  budgetDeleteMonth: (month) => request("DELETE", `/api/budget/${month}`),
+
   // auth
   authStatus: () => request("GET", "/api/auth/status"),
   register: (d) => request("POST", "/api/auth/register", d),
@@ -97,7 +108,6 @@ export const api = {
   // system
   info: () => request("GET", "/api/system/info"),
   backups: () => request("GET", "/api/system/backups"),
-  backup: () => request("POST", "/api/system/backups"),
   backupTo: (path) => request("POST", "/api/system/backup-to", { path }),
   restoreUpload: (formData) => request("POST", "/api/system/restore", formData),
   restoreBackup: (file, password) => request("POST", "/api/system/restore-backup", { file, password }),

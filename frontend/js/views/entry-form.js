@@ -1,6 +1,7 @@
 // Add / edit an entry. Fields change with the entry type.
 import { investmentForm } from "./investments.js";
 import { api } from "../api.js";
+import { info } from "../help.js";
 import { active, invalidateMasters, masters } from "../state.js";
 import {
   $, $$, addDays, confirmDialog, esc, modal, money, options, store, toast, todayISO, KIND_LABEL, TYPE_LABEL,
@@ -27,7 +28,7 @@ const SIDE_LABEL = {
   income: { to: "Received in" },
   transfer: { from: "From", to: "To" },
   invest: { from: "Paid from", to: "Invested in" },
-  redeem: { from: "Redeemed from", to: "Received in" },
+  redeem: { from: "Investment", to: "Received in" },
 };
 
 let M;          // masters
@@ -150,9 +151,9 @@ function draw() {
       <a class="btn btn-ghost" href="#/entries">← Transactions</a>
     </div>
     <form class="panel panel-pad form-card" id="entry-form" novalidate autocomplete="off">
-      <div class="seg types" role="tablist" aria-label="Transaction type">
+      <div class="types-row"><div class="seg types" role="tablist" aria-label="Transaction type">
         ${Object.entries(TYPE_LABEL).map(([k, l]) => `<button type="button" data-v="${k}" class="${k === t ? "on" : ""}" role="tab" aria-selected="${k === t}">${l}</button>`).join("")}
-      </div>
+      </div>${info("types")}</div>
       <p class="small muted" style="margin:10px 0 18px">${TYPE_HELP[t]}</p>
       <div class="form-grid">
         ${field("amount", t === "redeem" ? "Amount received" : "Amount",
@@ -180,13 +181,13 @@ function draw() {
       { hint: t === "transfer" ? "Paying a card bill? From = your bank, To = the card." : "" });
   }
   if (t === "redeem") {
-    html += field("principal_amount", "Principal being closed",
+    html += field("principal_amount", `Principal being closed${info("principal")}`,
       `<div class="amount-wrap"><input id="f-principal_amount" name="principal_amount" inputmode="decimal" value="${esc(v.principal_amount)}" placeholder="0"></div>`,
       { hint: "How much of what you invested is coming back. Full maturity = all of it." });
     html += `<div class="full" id="gain-box"></div>`;
   }
   if (showMode()) {
-    html += field("payment_mode_id", "Payment mode",
+    html += field("payment_mode_id", `Payment mode${info("paid_from")}`,
       `<select id="f-payment_mode_id" name="payment_mode_id">${options(active(M.payment_modes).concat(M.payment_modes.filter((m) => !m.active && String(m.id) === String(v.payment_mode_id))), v.payment_mode_id, { placeholder: "—" })}</select>`);
     html += `<div id="pm-other" class="${isOtherMode() ? "" : "hidden"}">` + field("payment_mode_other", "Which payment mode?",
       `<input id="f-payment_mode_other" name="payment_mode_other" maxlength="60" value="${esc(v.payment_mode_other)}" placeholder="e.g. Amazon Pay, gift card">`) + `</div>`;

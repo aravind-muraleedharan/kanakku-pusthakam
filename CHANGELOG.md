@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.2.0 (2026-10-23)
+
+### New
+- **Monthly Budget:** plan your income and expenses for up to three months at a time
+  - your own budget items, kept separate from your categories and transactions
+  - an amount and an optional note per item and month
+  - tick payments as done to see **Paid** and **Still to pay**
+  - **Sufficient** or **Short by** shows whether the month's income covers its expenses
+  - **Copy** the previous month, **Clear** a month, **Delete** a month, **Add month**
+- **ⓘ help buttons:** short explanations next to terms such as transaction types, principal, payment mode,
+  close vs delete, current value, CNC / MTF / intraday, prepayment and card dues
+- **Dashboard:** "Where the money went" shows the top 6 categories, with the rest added up as "Others"
+
+### Changed
+- **Money Manager is now called Accounts.** The sidebar order is Dashboard, Transactions, Accounts, Investments,
+  Loans & EMIs, Monthly Budget, Reports, Settings
+- **Redeem is now called Maturity** (money coming back from an investment). The transaction types are in the order
+  Income, Expense, Transfer, Invest, Maturity, and fit on one row on phones
+- Categories are listed alphabetically
+
+### Upgrading
+`git pull`, then start the app as usual. Database changes are applied automatically, after a backup.
+
 ## 1.1.0 (2026-10-13)
 
 ### New

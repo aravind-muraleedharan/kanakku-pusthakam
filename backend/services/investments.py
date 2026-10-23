@@ -471,12 +471,6 @@ def overview(today=None):
     }
 
 
-def total_value(today=None):
-    return overview(today)["totals"]["value"]
-
-
-# ---------------------------------------------------------------- create / update
-
 def _int(v, field, lo, hi, what):
     if v in (None, ""):
         return 0
@@ -721,7 +715,7 @@ def update(account_id, p):
     if opening is not None and opening != acc["opening_balance"]:
         if opening < acc["opening_balance"] and \
                 entries_svc.open_principal(account_id) - (acc["opening_balance"] - opening) < 0:
-            raise ApiError("Part of this is already redeemed; that can't be undone by changing the amount paid before",
+            raise ApiError("Part of this has already come back to you; that can't be undone by changing the amount paid before",
                            field="prepaid_instalments")
         conn.execute("UPDATE accounts SET opening_balance = ?, opening_date = ? WHERE id = ?",
                      (opening, c["start_date"] if opening else None, account_id))
@@ -879,7 +873,7 @@ def withdraw(account_id, p):
     """Share account -> bank. Never income: a plain transfer."""
     acc = _account(account_id)
     if acc["inv_type"] != "share":
-        raise ApiError("Use 'Close / redeem' for this investment")
+        raise ApiError("Use Close for this investment")
     _bank(p.get("to_account_id"), "to_account_id")
     return entries_svc.create({"type": "transfer", "date": p.get("date"), "amount": p.get("amount"),
                                "from_account_id": acc["id"], "to_account_id": p.get("to_account_id"),

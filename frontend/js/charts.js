@@ -90,11 +90,11 @@ export function barList(el, items, { kind = "expense", onClick, empty = "Nothing
 /**
  * Donut chart with a legend. items: [{label, value, color, sub?}]. Slices under ~1% still show a sliver.
  */
-export function donutChart(el, items, { centerLabel = "Total", centerValue, onClick } = {}) {
+export function donutChart(el, items, { centerLabel = "Total", centerValue, onClick, empty = "Nothing invested yet", label = "Investments by type" } = {}) {
   const list = items.filter((i) => i.value > 0);
   const total = list.reduce((a, i) => a + i.value, 0);
   if (!total) {
-    el.innerHTML = `<div class="empty small">Nothing invested yet</div>`;
+    el.innerHTML = `<div class="empty small">${esc(empty)}</div>`;
     return;
   }
   const R = 80, r = 52, C = 100;
@@ -117,7 +117,7 @@ export function donutChart(el, items, { centerLabel = "Total", centerValue, onCl
   s += `<text x="${C}" y="${C - 4}" text-anchor="middle" class="donut-label">${esc(centerLabel)}</text>
         <text x="${C}" y="${C + 16}" text-anchor="middle" class="donut-value">${esc(centerValue ?? moneyShort(total))}</text>`;
   el.innerHTML = `<div class="donut-wrap">
-    <div class="chart donut"><svg viewBox="0 0 200 200" role="img" aria-label="Investments by type">${s}</svg></div>
+    <div class="chart donut"><svg viewBox="0 0 200 200" role="img" aria-label="${esc(label)}">${s}</svg></div>
     <div class="donut-legend">${list.map((i, idx) => `
       <div class="dl-row ${onClick ? "click" : ""}" data-idx="${idx}">
         <i style="background:${i.color}"></i>

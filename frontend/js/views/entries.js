@@ -119,7 +119,7 @@ function row(e) {
   const title = {
     expense: e.category, income: e.category,
     transfer: e.to_kind === "credit_card" ? "Card bill payment" : "Transfer",
-    invest: `Invested in ${e.to_account}`, redeem: `Redeemed from ${e.from_account}`,
+    invest: `Invested in ${e.to_account}`, redeem: `Maturity / withdrawal: ${e.from_account}`,
   }[e.type];
   let sub = e.note ? esc(e.note) : "";
   if (e.type === "redeem") {

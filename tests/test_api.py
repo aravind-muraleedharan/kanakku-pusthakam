@@ -120,6 +120,13 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(next_day_of_month(31, date(2026, 2, 10)), date(2026, 2, 28))
         self.assertEqual(next_day_of_month(5, date(2026, 12, 20)), date(2027, 1, 5))
 
+    def test_categories_alphabetical(self):
+        self.c.post("/api/masters/categories", json={"name": "aaa new", "kind": "expense"})
+        self.c.post("/api/masters/categories", json={"name": "Zoo trips", "kind": "expense"})
+        for kind in ("expense", "income"):
+            names = [c["name"] for c in self.c.get("/api/masters").get_json()["categories"] if c["kind"] == kind]
+            self.assertEqual(names, sorted(names, key=str.lower), kind)
+
     # ------------------------------------------------------- payment modes
     def test_reward_points_and_other_payment_mode(self):
         self.assertIn("Reward Points", self.mode)

@@ -30,12 +30,13 @@ Stop the app with **Ctrl+C** in the terminal.
 
 ## Features
 
-- **Fast entry:** expense, income, transfer, invest and redeem, with today's date pre-filled and the payment mode
+- **Fast entry:** income, expense, transfer, invest and maturity, with today's date pre-filled and the payment mode
   (UPI, card, cash…) picked from the account
 - **Credit cards done right:** a card swipe is the expense; paying the bill is a transfer, so nothing is counted twice.
-  Money Manager shows what you owe on each card, its limit and the next due date
-- **Money Manager:** one page for everything you have and owe (banks, cards with limit and due date, cash,
-  investments, loans) and your **net worth**
+  Accounts shows what you owe on each card, its limit, the next due date and the EMIs running on it
+- **Accounts:** your bank accounts, cards (limit, due date) and cash in one place; **net worth** on the Dashboard
+- **Monthly Budget:** plan your income and expenses for up to three months, with a note per amount, payments
+  ticked off as you make them, and whether your income covers your expenses
 - **Investments aren't spending:** money put in is tracked as principal; when it matures only the gain (or loss)
   counts as income. Built-in types with their own maths:
   - **Fixed and recurring deposits:** interest, maturity value, instalment due dates; tenure in years + months + days
@@ -47,6 +48,7 @@ Stop the app with **Ctrl+C** in the terminal.
 - **Loans & EMIs:** credit card EMIs and personal loans with the full schedule, interest worked out from the EMI,
   prepayments (reduce tenure or EMI), and only the interest counted as an expense
 - **Coming up:** the next EMIs, deposit instalments and interest payouts on the dashboard
+- **ⓘ help** next to terms that need a word of explanation
 - **Reports:** monthly income / expense / savings, category totals, a month × category heat map,
   spending by payment mode; any period including the Indian financial year (Apr–Mar)
 - **Starting balances "as on" a date** for every bank account, card, cash and investment
@@ -58,10 +60,10 @@ Stop the app with **Ctrl+C** in the terminal.
 
 | | |
 | --- | --- |
-| ![Money Manager](docs/screenshots/money-manager.png) | ![Investments](docs/screenshots/investments.png) |
+| ![Accounts](docs/screenshots/accounts.png) | ![Investments](docs/screenshots/investments.png) |
 | ![Loans and EMIs](docs/screenshots/loans.png) | ![Dark theme](docs/screenshots/dashboard-dark.png) |
 | ![Add an entry](docs/screenshots/add-entry.png) | ![Month × category](docs/screenshots/month-category.png) |
-| ![Login with authenticator](docs/screenshots/login-code.png) | |
+| ![Monthly Budget](docs/screenshots/budget.png) | ![Login with authenticator](docs/screenshots/login-code.png) |
 
 ## How it counts money
 
@@ -71,7 +73,7 @@ Stop the app with **Ctrl+C** in the terminal.
 | Income | Salary credited to your bank | Income |
 | Transfer | Paying the credit card bill; ATM withdrawal | Neither, so nothing is counted twice |
 | Invest | ₹5,000 RD instalment | "Invested", not an expense |
-| Redeem | RD matures: ₹63,200 back for ₹60,000 put in | Only the ₹3,200 gain is income |
+| Maturity | RD matures: ₹63,200 back for ₹60,000 put in | Only the ₹3,200 gain is income |
 | Loan EMI | ₹10,030 EMI: ₹7,900 principal + ₹2,130 interest | Only the interest is an expense |
 
 ## Your data
@@ -99,7 +101,7 @@ See [SECURITY.md](SECURITY.md) for what the login does and doesn't protect.
 ├── start.sh               start + open the browser
 ├── backend/               Flask JSON API
 │   ├── api/               HTTP routes, one blueprint per feature
-│   ├── services/          business rules and SQL (entries, reports, investments, loans, auth, backup)
+│   ├── services/          business rules and SQL (entries, reports, investments, loans, budget, auth, backup)
 │   └── migrations/        numbered SQL files, applied automatically on start
 ├── frontend/              HTML, CSS and plain JavaScript modules (no build step)
 ├── tests/                 python3 -m unittest discover tests -v
@@ -118,7 +120,7 @@ python3 run.py --demo                     # sample data for trying changes
 Database changes go in a new `backend/migrations/NNN_name.sql`. New features: a blueprint in `backend/api/`,
 logic in `backend/services/`, a view in `frontend/js/views/`. See [docs/DESIGN.md](docs/DESIGN.md).
 
-Planned: budgets, recurring entries, bank statement import, Windows and macOS support.
+Planned: recurring entries, bank statement import, Windows and macOS support.
 
 ## License
 

@@ -120,14 +120,14 @@ def validate(payload, entry_id=None):
     from_acc = _account(clean["from_account_id"], "from_account_id") if clean["from_account_id"] else None
     if t == "transfer" and from_acc["kind"] == "investment":
         if inv_type(from_acc["id"]) != "share":
-            raise ApiError("Only stocks accounts can transfer out. Use Redeem for other investments.",
+            raise ApiError("Only stocks accounts can transfer out. Use Maturity for other investments.",
                            field="from_account_id")
         if _account(clean["to_account_id"], "to_account_id")["kind"] not in ("bank", "cash"):
             raise ApiError("Share withdrawals go to a bank or cash account", field="to_account_id")
     if t == "transfer" and from_acc["kind"] == "loan" and _account(clean["to_account_id"], "to_account_id")["kind"] not in ("bank", "cash"):
         raise ApiError("A loan can only be credited to a bank or cash account", field="to_account_id")
     if t == "redeem" and inv_type(from_acc["id"]) == "share":
-        raise ApiError("Stocks accounts are never redeemed: use a Transfer (withdrawal), so it isn't counted as income",
+        raise ApiError("Stocks accounts don't use Maturity: use a Transfer (withdrawal), so it isn't counted as income",
                        field="from_account_id")
     if clean["from_account_id"] and clean["from_account_id"] == clean["to_account_id"]:
         raise ApiError("From and To accounts must be different", field="to_account_id")
@@ -209,7 +209,7 @@ def delete(entry_id):
     if entry["type"] == "invest" and inv_type(entry["to_account_id"]) != "share":
         # deleting an invest must not leave redeemed principal larger than what was put in
         if open_principal(entry["to_account_id"], exclude_entry_id=entry_id) < 0:
-            raise ApiError("This investment has already been (partly) redeemed. Edit or delete the Redeem transaction first.")
+            raise ApiError("Money has already come back from this investment. Edit or delete that Maturity transaction first.")
     conn = get_db()
     conn.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
     conn.commit()

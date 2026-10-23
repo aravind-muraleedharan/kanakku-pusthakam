@@ -1,6 +1,6 @@
 // Dashboard: this month at a glance, net worth, investments, what's coming up, top categories, accounts.
 import { api } from "../api.js";
-import { barList, donutChart, incomeExpenseChart } from "../charts.js";
+import { donutChart, incomeExpenseChart } from "../charts.js";
 import { typeColor } from "./investments.js";
 import { $, dateLabel, esc, money, monthLabel, shiftMonth, store, thisMonth } from "../util.js";
 
@@ -43,7 +43,7 @@ export async function render(params) {
       ${kpi("Net savings", `<span class="${s.net < 0 ? "neg" : ""}">${money(s.net)}</span>`, "var(--net)",
             s.savings_rate === null ? "—" : `${s.savings_rate}% of income saved`)}
       ${kpi("Invested", money(s.invested), "var(--invest)",
-            s.redeemed_principal ? `${money(s.redeemed_principal)} principal redeemed` : "not counted as expense")}
+            s.redeemed_principal ? `${money(s.redeemed_principal)} principal returned` : "not counted as expense")}
     </div>
 
     <div class="grid grid-main" style="margin-top:16px">
@@ -52,7 +52,7 @@ export async function render(params) {
         <div class="panel-body" id="dash-chart"></div>
       </section>
       <section class="panel">
-        <div class="panel-head"><h2>Net worth</h2><a class="small" href="#/money">Money Manager →</a></div>
+        <div class="panel-head"><h2>Net worth</h2><a class="small" href="#/accounts">Accounts →</a></div>
         <div class="panel-body">${netWorth(d.totals)}</div>
       </section>
     </div>
@@ -74,7 +74,7 @@ export async function render(params) {
         <div class="panel-body" id="dash-cats"></div>
       </section>
       <section class="panel">
-        <div class="panel-head"><h2>Accounts</h2><a class="small" href="#/money">All accounts →</a></div>
+        <div class="panel-head"><h2>Accounts</h2><a class="small" href="#/accounts">All accounts →</a></div>
         <div class="panel-body">${accounts(d)}</div>
       </section>
     </div>`;
@@ -88,9 +88,16 @@ export async function render(params) {
   } else {
     $("#dash-inv").innerHTML = `<div class="empty small" style="padding:24px 0">No investments yet. <a href="#/investments">Add one</a></div>`;
   }
-  barList($("#dash-cats"), d.top_categories, {
-    empty: "No expenses recorded this month",
-    onClick: (c) => { location.hash = `#/entries?month=${month}&type=expense&category_id=${c.id}`; },
+  const PIE = ["var(--t-share)", "var(--t-fd)", "var(--t-gold)", "var(--t-ppf)", "var(--t-chitty)", "var(--t-x1)"];
+  donutChart($("#dash-cats"), d.top_categories.map((c, i) => ({
+    id: c.id, label: c.name, value: c.amount, color: c.id === null ? "var(--t-silver)" : PIE[i % PIE.length],
+    sub: `${c.count} transaction${c.count === 1 ? "" : "s"}`,
+  })), {
+    centerLabel: "Spent", empty: "No expenses recorded this month", label: "Spending by category",
+    onClick: (c) => {
+      location.hash = c.id === null ? `#/reports?tab=categories&month=${month}`
+        : `#/entries?month=${month}&type=expense&category_id=${c.id}`;
+    },
   });
 }
 
@@ -105,11 +112,11 @@ function kpi(label, value, color, foot) {
 /** Net worth: what you have vs what you owe, as two bars on one scale. */
 function netWorth(t) {
   const have = [
-    { label: "Bank & cash", value: Math.max(0, t.bank_and_cash), color: "var(--net)", href: "#/money" },
+    { label: "Bank & cash", value: Math.max(0, t.bank_and_cash), color: "var(--net)", href: "#/accounts" },
     { label: "Investments", value: Math.max(0, t.investments_value ?? t.invested_principal), color: "var(--income)", href: "#/investments" },
   ];
   const owe = [
-    { label: "Credit cards", value: Math.max(0, t.card_outstanding), color: "var(--expense)", href: "#/money" },
+    { label: "Credit cards", value: Math.max(0, t.card_outstanding), color: "var(--expense)", href: "#/accounts" },
     { label: "Loans & EMIs", value: Math.max(0, t.loans_outstanding || 0), color: "var(--t-chitty)", href: "#/loans" },
   ];
   const sum = (l) => l.reduce((a, x) => a + x.value, 0);
@@ -140,18 +147,18 @@ function comingUp(inv, loans) {
       <span class="amt num">${money(u.amount)}</span></a>`).join("")}</div>`;
 }
 
-/** Bank & cash with money in them, and cards you owe on. Empty accounts stay in Money Manager. */
+/** Bank & cash with money in them, and cards you owe on. Empty accounts stay in Accounts. */
 function accounts(d) {
   const banks = d.balances.filter((b) => ["bank", "cash"].includes(b.kind) && b.balance).sort((a, b) => b.balance - a.balance);
   const cards = d.balances.filter((b) => b.kind === "credit_card" && b.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding);
   const MAX = 5;
   const row = (b, amt, cls = "") => `<a class="acc-row" href="#/entries?account_id=${b.id}"><span>${esc(b.name)}</span><b class="${cls}">${amt}</b></a>`;
-  const more = (n) => (n > 0 ? `<a class="small" href="#/money">+ ${n} more</a>` : "");
+  const more = (n) => (n > 0 ? `<a class="small" href="#/accounts">+ ${n} more</a>` : "");
   return `<div class="acc-grp"><div class="acc-h"><span>Bank &amp; cash</span><b>${money(d.totals.bank_and_cash)}</b></div>
       ${banks.length ? banks.slice(0, MAX).map((b) => row(b, money(b.balance), b.balance < 0 ? "neg" : "")).join("") + more(banks.length - MAX)
         : `<p class="small faint" style="margin:4px 0">No money in any account yet.</p>`}</div>
     <div class="acc-grp"><div class="acc-h"><span>Credit cards owed</span><b class="${d.totals.card_outstanding > 0 ? "neg" : ""}">${money(d.totals.card_outstanding)}</b></div>
       ${cards.length ? cards.slice(0, MAX).map((b) => row(b, money(b.outstanding), "neg")).join("") + more(cards.length - MAX)
         : `<p class="small faint" style="margin:4px 0">Nothing owed on your cards.</p>`}</div>
-    <p class="small faint" style="margin:10px 0 0">Accounts with ₹0 are left out here; see them all in Money Manager.</p>`;
+    <p class="small faint" style="margin:10px 0 0">Accounts with ₹0 are left out here; see them all in Accounts.</p>`;
 }

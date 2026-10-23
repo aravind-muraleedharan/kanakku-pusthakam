@@ -51,7 +51,7 @@ def _account_out(r):
 def list_items(table, include_inactive=True):
     _check_table(table)
     cond = "" if include_inactive else " WHERE active = 1"
-    order = "kind, sort_order, name" if table == "categories" else "sort_order, name"
+    order = "kind, name COLLATE NOCASE" if table == "categories" else "sort_order, name"   # categories: A to Z
     data = rows(f"SELECT * FROM {table}{cond} ORDER BY {order}")
     for r in data:
         r["active"] = bool(r["active"])

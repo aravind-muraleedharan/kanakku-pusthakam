@@ -1,9 +1,9 @@
-// Money Manager (#/money): bank accounts, credit cards, cash, investments and loans on one page.
+// Accounts (#/accounts): where your everyday money is - bank accounts, credit cards and cash.
+// Investments and Loans & EMIs have their own pages; net worth is on the Dashboard.
 import { api } from "../api.js";
+import { info } from "../help.js";
 import { invalidateMasters } from "../state.js";
 import { $, $$, confirmDialog, dateLabel, esc, modal, money, toast, todayISO } from "../util.js";
-import { investmentForm, typeColor } from "./investments.js";
-import { loanForm } from "./loans.js";
 import { ICON } from "../icons.js";
 
 const SUBTYPE = { savings: "Savings", current: "Current", salary: "Salary", other: "Other" };
@@ -20,25 +20,27 @@ let data;
 export async function render() {
   data = await api.money();
   const t = data.totals;
+  const due = data.cards.filter((c) => c.active && c.next_due && c.outstanding > 0).sort((a, b) => a.next_due.localeCompare(b.next_due))[0];
   $("#view").innerHTML = `
     <div class="page-head">
-      <div><h1>Money Manager</h1><div class="sub muted small">Everything you have and owe, as on ${esc(dateLabel(todayISO()))}</div></div>
+      <div><h1>Accounts</h1><div class="sub muted small">Where your everyday money is: bank accounts, credit cards and cash, as on ${esc(dateLabel(todayISO()))}.
+        Investments and loans have their own pages.</div></div>
     </div>
     <div class="grid grid-4">
-      ${kpi("Net worth", `<span class="${t.net_worth < 0 ? "neg" : ""}">${money(t.net_worth)}</span>`, "have − owe", "var(--net)")}
-      ${kpi("Bank & cash", money(t.bank + t.cash), `${money(t.bank)} bank · ${money(t.cash)} cash`, "var(--income)")}
-      ${kpi("Investments", money(t.investments), "current value", "var(--invest)")}
-      ${kpi("You owe", money(t.card_owed + t.loans), `${money(t.card_owed)} cards · ${money(t.loans)} loans`, "var(--expense)")}
+      ${kpi("In the bank", `<span class="${t.bank < 0 ? "neg" : ""}">${money(t.bank)}</span>`, `${data.banks.filter((a) => a.active).length} account${data.banks.filter((a) => a.active).length === 1 ? "" : "s"}`, "var(--income)")}
+      ${kpi("Cash", money(t.cash), "in hand", "var(--transfer)")}
+      ${kpi("Card dues", money(t.card_owed), t.card_limit ? `of ${money(t.card_limit)} limit` : "on all cards", "var(--expense)", "card_dues")}
+      ${kpi("Next card bill", due ? money(due.outstanding) : "—", due ? `${esc(due.name)} · due ${esc(shortDate(due.next_due))}` : "nothing due", "var(--warn)")}
     </div>
     <div class="mm-grid">
       <div class="stack">
         ${section("bank", data.banks, money(t.bank))}
-        ${section("credit_card", data.cards, `owed ${money(t.card_owed)}${t.card_limit ? ` of ${money(t.card_limit)} limit` : ""}`)}
         ${section("cash", data.cash, money(t.cash))}
       </div>
       <div class="stack">
-        ${investments()}
-        ${loans()}
+        ${section("credit_card", data.cards, `owed ${money(t.card_owed)}${t.card_limit ? ` of ${money(t.card_limit)} limit` : ""}`)}
+        <p class="small faint" style="margin:0 4px">Looking for investments, loans or your net worth? See
+          <a href="#/investments">Investments</a>, <a href="#/loans">Loans &amp; EMIs</a> and the <a href="#/dashboard">Dashboard</a>.</p>
       </div>
     </div>`;
   $$("[data-add]").forEach((b) => b.addEventListener("click", () => accountForm(b.dataset.add)));
@@ -46,12 +48,11 @@ export async function render() {
     const all = [...data.banks, ...data.cards, ...data.cash];
     accountForm(null, all.find((a) => String(a.id) === r.dataset.edit));
   }));
-  $("[data-new-inv]").addEventListener("click", async () => { const r = await investmentForm(null); if (r) render(); });
-  $("[data-new-loan]").addEventListener("click", async () => { const r = await loanForm(null); if (r) render(); });
+  $$("[data-edit] a").forEach((l) => l.addEventListener("click", (e) => e.stopPropagation()));
 }
 
-function kpi(label, value, foot, color) {
-  return `<div class="panel kpi"><div class="kpi-label"><span class="dot" style="background:${color}"></span>${esc(label)}</div>
+function kpi(label, value, foot, color, help) {
+  return `<div class="panel kpi"><div class="kpi-label"><span class="dot" style="background:${color}"></span>${esc(label)}${help ? info(help) : ""}</div>
     <div class="kpi-value">${value}</div><div class="kpi-foot">${foot}</div></div>`;
 }
 
@@ -92,36 +93,15 @@ function row(kind, a) {
       extra = `<div class="progress ${p >= 75 ? "warn" : ""}" style="height:6px;margin-top:6px"><div style="width:${p}%"></div></div>`;
     }
     if (bits.length) extra += `<div class="cell-sub" style="margin-top:4px">${bits.join(" · ")}</div>`;
+    if (a.emis && a.emis.length) {
+      extra += `<div class="cell-sub" style="margin-top:4px">EMIs on this card: ${a.emis.map((e) =>
+        `<a href="#/loan/${e.id}">${esc(e.name)}</a> ${money(e.emi)}/month`).join(" · ")}</div>`;
+    }
   }
   return `<div class="mm-row" data-edit="${a.id}" role="button" tabindex="0">
     <div class="mm-main"><div class="cell-main">${esc(a.name)}</div>${sub.length ? `<div class="cell-sub">${esc(sub.join(" · "))}</div>` : ""}${extra}</div>
     <div class="mm-amt">${amount}</div><span class="mm-edit" aria-hidden="true">✎</span>
   </div>`;
-}
-
-function investments() {
-  const inv = data.investments;
-  return `<section class="panel mm-sec">
-    ${head(ICON.investments, "Investments", money(inv.totals.value), `<button class="btn btn-sm" data-new-inv>+ Investment</button>`)}
-    <div class="mm-list">${inv.by_type.length ? inv.by_type.map((t) => `
-      <a class="mm-row" href="#/investments"><div class="mm-main"><div class="cell-main"><i class="mm-dot" style="background:${typeColor(t.color)}"></i>${esc(t.label)}</div>
-        <div class="cell-sub">${t.count} · invested ${money(t.invested)}</div></div><div class="mm-amt">${money(t.value)}</div><span class="mm-edit">›</span></a>`).join("")
-      : `<p class="small faint mm-empty">None yet.</p>`}</div>
-    <a class="small mm-more" href="#/investments">Open Investments →</a>
-  </section>`;
-}
-
-function loans() {
-  const lo = data.loans;
-  return `<section class="panel mm-sec">
-    ${head(ICON.loans, "Loans &amp; EMIs", `owed ${money(lo.totals.outstanding)}`, `<button class="btn btn-sm" data-new-loan>+ Loan or EMI</button>`)}
-    <div class="mm-list">${lo.items.length ? lo.items.map((l) => `
-      <a class="mm-row" href="#/loan/${l.id}"><div class="mm-main"><div class="cell-main">${esc(l.name)}</div>
-        <div class="cell-sub">${esc(l.type_label)}${l.next ? ` · EMI ${money(l.next.amount)} on ${esc(shortDate(l.next.date))}` : ""}</div></div>
-        <div class="mm-amt"><span class="neg">${money(l.outstanding)}</span><small>owed</small></div><span class="mm-edit">›</span></a>`).join("")
-      : `<p class="small faint mm-empty">No loans or EMIs.</p>`}</div>
-    <a class="small mm-more" href="#/loans">Open Loans &amp; EMIs →</a>
-  </section>`;
 }
 
 // ------------------------------------------------------------------ add / edit a bank account, card or cash

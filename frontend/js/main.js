@@ -1,4 +1,4 @@
-// Hash router: #/dashboard, #/money, #/entries, #/investments, #/investment/3, #/add, #/edit/12, #/reports, #/settings
+// Hash router: #/dashboard, #/accounts, #/entries, #/budget, #/investments, #/investment/3, #/add, #/edit/12, #/reports, #/settings
 // Every screen except forgot/reset password requires a full login (password + authenticator code).
 import { api } from "./api.js";
 import { $, $$, esc, toast } from "./util.js";
@@ -10,6 +10,7 @@ import * as investment from "./views/investment.js";
 import * as investments from "./views/investments.js";
 import * as loans from "./views/loans.js";
 import * as moneyView from "./views/money.js";
+import * as budget from "./views/budget.js";
 import * as reports from "./views/reports.js";
 import * as settings from "./views/settings.js";
 import * as setup from "./views/setup.js";
@@ -17,7 +18,8 @@ import { initTheme } from "./theme.js";
 
 const routes = {
   dashboard: (p) => dashboard.render(p),
-  money: (p) => moneyView.render(p),
+  accounts: (p) => moneyView.render(p),
+  money: (p) => moneyView.render(p),        // old address of Accounts
   entries: (p) => entries.render(p),
   add: (p) => entryForm.render({ ...p }),
   edit: (p, id) => entryForm.render({ ...p, id }),
@@ -25,6 +27,8 @@ const routes = {
   investment: (p, id) => investment.render(p, id),
   loans: (p) => loans.render(p),
   loan: (p, id) => loans.renderLoan(p, id),
+  budget: (p) => budget.render(p),
+  planner: (p) => budget.render(p),        // old address of the Monthly Budget
   reports: (p) => reports.render(p),
   settings: (p) => settings.render(p),
   setup: (p) => setup.render(p),
@@ -81,7 +85,7 @@ async function navigate(extra = {}) {
     return;
   }
   if (AUTH_ROUTES.includes(name)) { location.hash = "#/dashboard"; return; }
-  const nav = name === "add" || name === "edit" ? "entries" : name === "investment" ? "investments" : name === "loan" ? "loans" : ["setup", "new-authenticator"].includes(name) ? "settings" : name;
+  const nav = name === "add" || name === "edit" ? "entries" : name === "investment" ? "investments" : name === "loan" ? "loans" : name === "planner" ? "budget" : name === "money" ? "accounts" : ["setup", "new-authenticator"].includes(name) ? "settings" : name;
   document.body.classList.toggle("on-form", name === "add" || name === "edit");
   $$("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.route === nav));
   const view = $("#view");

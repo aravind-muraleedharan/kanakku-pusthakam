@@ -95,7 +95,7 @@ def export_csv():
     buf.write("﻿")   # BOM so Excel reads ₹ and Malayalam/Unicode notes correctly
     w = csv.writer(buf)
     w.writerow(["Date", "Type", "Amount", "Category", "From account", "To account",
-                "Payment mode", "Principal (redeem)", "Gain (redeem)", "Note"])
+                "Payment mode", "Principal (maturity)", "Gain (maturity)", "Note"])
     for r in data:
         gain = ""
         if r["type"] == "redeem" and r["principal_amount"] is not None:

@@ -11,7 +11,7 @@ const SECTIONS = {
 };
 
 export async function render(params) {
-  if (params.s === "accounts") { location.hash = "#/money"; return; }
+  if (params.s === "accounts") { location.hash = "#/accounts"; return; }
   const sec = SECTIONS[params.s] ? params.s : "categories";
   const M = await masters(true);
   $("#view").innerHTML = `

@@ -202,6 +202,15 @@ def balances(as_of=None):
     return out
 
 
+def _top_with_others(items, n=6):
+    """The biggest n categories, the rest added up as "Others" (for the dashboard pie)."""
+    if len(items) <= n + 1:
+        return items
+    rest = items[n:]
+    return items[:n] + [{"id": None, "name": f"Others ({len(rest)})", "amount": round(sum(i["amount"] for i in rest), 2),
+                         "count": sum(i["count"] for i in rest), "share": round(sum(i["share"] for i in rest), 1)}]
+
+
 def dashboard(month):
     start, end = month_bounds(month)
     prev = shift_month(month, -1)
@@ -239,7 +248,7 @@ def dashboard(month):
         "setup_needed": all(b["opening_date"] is None for b in bal),
         "summary": summary(start, end),
         "previous": summary(pstart, pend),
-        "top_categories": category_totals("expense", start, end)["items"][:6],
+        "top_categories": _top_with_others(category_totals("expense", start, end)["items"]),
         "last_12_months": monthly(year_start, end),
         "balances": bal,
         "loans": loan_items,

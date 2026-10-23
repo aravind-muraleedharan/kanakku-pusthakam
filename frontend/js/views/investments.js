@@ -1,5 +1,6 @@
 // Investments overview: value by type (donut), what's coming up, every investment grouped by type.
 import { api } from "../api.js";
+import { info } from "../help.js";
 import { donutChart } from "../charts.js";
 import { masters, active, invalidateMasters } from "../state.js";
 import { $, $$, dateLabel, esc, modal, money, options, toast, todayISO } from "../util.js";
@@ -30,7 +31,7 @@ export async function render() {
     </div>
 
     <div class="grid grid-4">
-      ${kpi("Current value", money(t.value), "var(--net)", "estimated, as on today")}
+      ${kpi("Current value", money(t.value), "var(--net)", "estimated, as on today", "current_value")}
       ${kpi("Invested", money(t.invested), "var(--invest)", "principal amount")}
       ${kpi("Gain", `<span class="${gainCls(t.gain)}">${money(t.gain, { sign: true })}</span>`, "var(--income)",
             gainPct === null ? "—" : `${pct(gainPct)} on what's invested`)}
@@ -75,9 +76,9 @@ export async function render() {
   });
 }
 
-function kpi(label, value, color, foot) {
+function kpi(label, value, color, foot, help) {
   return `<div class="panel kpi">
-    <div class="kpi-label"><span class="dot" style="background:${color}"></span>${esc(label)}</div>
+    <div class="kpi-label"><span class="dot" style="background:${color}"></span>${esc(label)}${help ? info(help) : ""}</div>
     <div class="kpi-value">${value}</div>
     <div class="kpi-foot">${foot}</div>
   </div>`;
@@ -164,7 +165,7 @@ function fieldDefs(d, banks, bankAccounts, isNew, payAccounts) {
           class="${custom ? "" : "hidden"}" style="margin-top:6px">` },
     { name: "held_at", types: HELD_AT.join(" "), label: { ppf: "PPF Account With", _: "Bank Account" },
       hint: heldList.length ? (!d.held_at_account_id && inst ? `Earlier you typed “${inst}”: choose the account it's with.` : "")
-        : "Add your bank account in Money Manager first, then choose it here.",
+        : "Add your bank account in Accounts first, then choose it here.",
       html: `<select name="held_at_account_id">${options(heldList, d.held_at_account_id, { placeholder: heldList.length ? "Choose…" : "No bank accounts yet" })}</select>` },
     { name: "institution", types: "chitty other", full: true,
       label: { gold: "Where It's Kept", silver: "Where It's Kept", chitty: "Company / Organiser", _: "Institution / Platform" },

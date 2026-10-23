@@ -73,7 +73,25 @@ def seed_demo(app):
                                 "to_account_id": card, "payment_mode_id": mode["Net Banking"], "note": "Card bill"})
         _demo_investments(today, y0, m0, rd, bank, rnd)
         _demo_loans(today, bank, card, cat)
+        _demo_budget(today)
         return True
+
+
+def _demo_budget(today):
+    """A budget for next month (the month after is left for you to try "Copy")."""
+    from .services import budget
+    from .services.reports import shift_month
+    plan = [("income", "Salary", 85000), ("income", "Rent received", 6000),
+            ("expense", "House rent", 16000), ("expense", "Groceries", 4500), ("expense", "Milk", 900),
+            ("expense", "Electricity", 2200), ("expense", "Phone & internet", 800), ("expense", "Petrol", 2500),
+            ("expense", "Phone EMI", 8000), ("expense", "Home loan EMI", 10030), ("expense", "RD instalment", 5000),
+            ("expense", "Eating out", 1500)]
+    nxt = shift_month(today.strftime("%Y-%m"), 1)
+    ids = {}
+    for kind, name, _ in plan:
+        ids[name] = budget.add_item({"kind": kind, "name": name})["id"]
+    budget.save(nxt, [{"item_id": ids[n], "amount": str(v)} for _, n, v in plan], today=today)
+    budget.save(nxt, [{"item_id": ids["Groceries"], "note": "Festival week"}], today=today)
 
 
 def _demo_investments(today, y0, m0, rd, bank, rnd):

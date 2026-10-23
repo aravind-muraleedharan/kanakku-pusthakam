@@ -1,6 +1,7 @@
-"""Money Manager: everything you have and owe, in five groups.
+"""Accounts: where your everyday money is - bank accounts, credit cards and cash.
 
-Bank accounts, credit cards and cash are accounts; investments and loans are summarised from their own modules.
+Investments and loans have their own pages; their totals are still returned for net worth (shown on the Dashboard).
+Each card lists the EMIs running on it, which live under Loans & EMIs.
 """
 import calendar
 from datetime import date
@@ -51,6 +52,9 @@ def overview(today=None):
 
     inv = inv_svc.overview(today)
     lo = loan_svc.overview(today)
+    for card in out["credit_card"]:
+        card["emis"] = [{"id": i["id"], "name": i["name"], "emi": i["summary"]["emi"]} for i in lo["items"]
+                        if i["status"] == "active" and i["loan_type"] == "cc_emi" and i["account_id"] == card["id"]]
     active = lambda lst: [x for x in lst if x["active"]]
     totals = {
         "bank": round(sum(x["balance"] for x in out["bank"]), 2),
@@ -64,10 +68,5 @@ def overview(today=None):
                                 - totals["card_owed"] - totals["loans"], 2)
     return {
         "banks": out["bank"], "cards": out["credit_card"], "cash": out["cash"],
-        "investments": {"totals": inv["totals"], "by_type": inv["by_type"], "count": sum(t["count"] for t in inv["by_type"])},
-        "loans": {"totals": lo["totals"],
-                  "items": [{"id": i["id"], "name": i["name"], "loan_type": i["loan_type"], "type_label": i["type_label"],
-                             "outstanding": i["summary"]["outstanding"], "emi": i["summary"]["emi"],
-                             "next": i["summary"]["next"]} for i in lo["items"] if i["status"] == "active"]},
         "totals": totals,
     }

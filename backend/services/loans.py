@@ -245,12 +245,6 @@ def overview(today=None):
     }
 
 
-def total_outstanding(today=None):
-    return sum(_out(ln, today)["summary"]["outstanding"] for ln in rows("SELECT * FROM loans WHERE status = 'active'"))
-
-
-# ---------------------------------------------------------------- create / edit
-
 def _clean_terms(p, existing=None):
     ex = existing or {}
     t = p.get("loan_type", ex.get("loan_type"))

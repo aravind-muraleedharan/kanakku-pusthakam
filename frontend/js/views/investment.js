@@ -1,5 +1,6 @@
 // One investment: share journal, FD payouts, RD instalments, PPF, gold/silver items, simple holdings, your extra fields.
 import { api } from "../api.js";
+import { info } from "../help.js";
 import { masters, active, invalidateMasters } from "../state.js";
 import { $, $$, confirmDialog, dateLabel, esc, modal, money, options, toast, todayISO, TYPE_LABEL as ENTRY_LABEL } from "../util.js";
 import { gainCls, investmentForm, pct, typeChip } from "./investments.js";
@@ -39,7 +40,7 @@ function draw() {
       <div class="toolbar">${a.active ? buttons(t, s) : ""}<button class="btn" data-do="edit">Edit</button>
         ${a.active ? (s.closed ? "" : `<button class="btn" data-do="close">Close</button>`)
           : `<button class="btn" data-do="reopen">${d.closed_on ? "Undo closing" : "Reopen"}</button>`}
-        <button class="btn btn-ghost btn-danger" data-do="delete">Delete</button></div>
+        <button class="btn btn-ghost btn-danger" data-do="delete">Delete</button>${info("close_delete")}</div>
     </div>
     ${closedNote(d, a)}
     <div class="grid grid-4">${kpis(t, s, d)}</div>
@@ -128,7 +129,7 @@ function kpis(t, s, d) {
   }
   return kpi("Invested", money(s.invested), "principal amount", "var(--invest)")
     + kpi("Value", money(s.value), s.value_as_on ? `you entered it as on ${esc(dateLabel(s.value_as_on))}` : "shown at what you put in")
-    + kpi("Gain", signed(s.gain), s.value_as_on ? `${money(s.unrealised_gain, { sign: true })} on paper · ${money(s.realised_gain, { sign: true })} realised` : "from redeemed amounts", "var(--income)")
+    + kpi("Gain", signed(s.gain), s.value_as_on ? `${money(s.unrealised_gain, { sign: true })} on paper · ${money(s.realised_gain, { sign: true })} realised` : "from maturities and withdrawals", "var(--income)")
     + kpi("Transactions", String(s.flows.length), "money in and out", "var(--transfer)");
 }
 
@@ -141,7 +142,7 @@ function buttons(t, s) {
   if (t === "ppf") return b("redeem", "Withdraw") + b("funds", "Deposit", true);
   if (isMetal(t)) return b("item", metalWords().add, true);
   if (t === "chitty" && s.scheme) return b("redeem", "Prize received") + b("funds", "Pay instalment", true);
-  return b("value", "Update value") + b("redeem", "Redeem") + b("funds", "Add money", true);
+  return b("value", "Update value") + b("redeem", "Maturity / withdraw") + b("funds", "Add money", true);
 }
 
 /** "Closed on 10 Oct 2026 · received ₹1,03,000 · closed early" */
@@ -368,7 +369,7 @@ function wire() {
     body: fld("*Value Now (₹)", `<input name="value" inputmode="decimal" value="${esc(s.value_as_on ? s.value : "")}" placeholder="from your statement">`,
       "What it's worth today, from your statement or app. Leave empty to show it at what you put in again.")
       + fld("*As On", `<input type="date" name="date" value="${todayISO()}" max="${todayISO()}" required>`)
-      + `<p class="small faint" style="margin:0">Money you add or redeem after this date is added to or taken off this value.</p>`,
+      + `<p class="small faint" style="margin:0">Money you add or take out after this date is added to or taken off this value.</p>`,
     onSubmit: (v) => act(api.invPost(a.id, "value", v), v.value ? "Value updated" : "Shown at what you put in"),
   }));
 
@@ -380,7 +381,7 @@ function wire() {
   }));
 
   on("[data-do=redeem]", () => modal({
-    title: d.inv_type === "ppf" ? "Withdraw from PPF" : d.inv_type === "chitty" ? "Prize money received" : `Redeem from ${a.name}`,
+    title: d.inv_type === "ppf" ? "Withdraw from PPF" : d.inv_type === "chitty" ? "Prize money received" : `Maturity / withdrawal: ${a.name}`,
     body: dateFld() + amtFld("Amount Received (₹)")
       + fld("Principal Closed (₹)", `<input name="principal_amount" inputmode="decimal" value="${esc(s.invested ?? "")}">`,
         "What you had put in. Amount received minus this counts as income (Investment Returns).")
@@ -476,7 +477,7 @@ function actionModal(r) {
     wide: true,
     body: `<div class="form-grid">
       ${dateFld(r?.date)}
-      ${fld("*Action", `<select name="action" id="act-kind">${options(Object.entries(ACT_NAMES).map(([id, name]) => ({ id, name })), r?.action || "cnc_sell")}</select>`)}
+      ${fld(`*Action${info("market_action")}`, `<select name="action" id="act-kind">${options(Object.entries(ACT_NAMES).map(([id, name]) => ({ id, name })), r?.action || "cnc_sell")}</select>`)}
       <div id="act-other">${fld("*Action Name", `<input name="action_other" maxlength="60" value="${esc(r?.action_other ?? "")}" placeholder="e.g. F&O, IPO, Buyback">`)}</div>
       <div class="full">${fld("*Stock(s)", `<input name="stocks" required maxlength="200" value="${esc(r?.stocks ?? "")}" placeholder="e.g. TCS, INFY">`)}</div>
       <div id="act-profit">${fld("Profit (₹, Before Charges)", `<input name="profit" inputmode="decimal" value="${esc(r?.profit ?? "")}">`, "Use a minus sign for a loss, e.g. -250")}</div>

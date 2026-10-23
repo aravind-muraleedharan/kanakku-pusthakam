@@ -1,5 +1,6 @@
 // Loans & EMIs: overview (#/loans) and one loan with its schedule (#/loan/3).
 import { api } from "../api.js";
+import { info } from "../help.js";
 import { masters, active, invalidateMasters } from "../state.js";
 import { $, $$, confirmDialog, dateLabel, esc, modal, money, options, toast, todayISO } from "../util.js";
 
@@ -7,8 +8,8 @@ const TYPE_LABEL = { cc_emi: "Credit card EMI", personal: "Personal loan", other
 const TYPE_COLOR = { cc_emi: "var(--t-share)", personal: "var(--t-chitty)", other: "var(--t-other)" };
 const chip = (t) => `<span class="type-chip"><i style="background:${TYPE_COLOR[t]}"></i>${TYPE_LABEL[t]}</span>`;
 
-function kpi(label, value, foot = "", color = "var(--net)") {
-  return `<div class="panel kpi"><div class="kpi-label"><span class="dot" style="background:${color}"></span>${esc(label)}</div>
+function kpi(label, value, foot = "", color = "var(--net)", help = "") {
+  return `<div class="panel kpi"><div class="kpi-label"><span class="dot" style="background:${color}"></span>${esc(label)}${help ? info(help) : ""}</div>
     <div class="kpi-value">${value}</div><div class="kpi-foot">${foot}</div></div>`;
 }
 const bar = (pct) => `<div class="progress" style="height:7px"><div style="width:${Math.max(0, Math.min(100, pct))}%"></div></div>`;
@@ -31,7 +32,7 @@ export async function render() {
     <div class="grid grid-4">
       ${kpi("Outstanding", money(t.outstanding), "principal left to repay", "var(--expense)")}
       ${kpi("EMIs this month", money(t.emi_month), t.due_count ? `<span style="color:var(--warn)">${t.due_count} due to record</span>` : "all recorded", "var(--warn)")}
-      ${kpi("Interest left to pay", money(t.interest_left), "if paid as scheduled", "var(--invest)")}
+      ${kpi("Interest left to pay", money(t.interest_left), "if paid as scheduled", "var(--invest)", "interest_only")}
       ${kpi("Running", String(t.active), closed.length ? `${closed.length} closed` : "", "var(--transfer)")}
     </div>
     <div class="grid grid-main" style="margin-top:16px">
@@ -195,7 +196,7 @@ function wireLoan() {
       body: fld("*Date", `<input type="date" name="date" value="${todayISO()}">`)
         + fld("*Amount Prepaid (₹)", `<input name="amount" inputmode="decimal" required>`, `Outstanding now: ${money(ln.summary.outstanding)}`)
         + fld("Prepayment Charges (₹)", `<input name="charges" inputmode="decimal">`)
-        + fld("*After Prepaying", `<select name="mode"><option value="tenure">Keep the EMI, finish sooner</option><option value="emi">Keep the end date, lower the EMI</option></select>`)
+        + fld(`*After Prepaying${info("prepay_mode")}`, `<select name="mode"><option value="tenure">Keep the EMI, finish sooner</option><option value="emi">Keep the end date, lower the EMI</option></select>`)
         + await sourceField(ln),
       onSubmit: (v) => refresh(api.loanPost(ln.id, "prepay", v), "Prepayment recorded"),
     });

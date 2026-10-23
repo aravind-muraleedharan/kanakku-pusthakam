@@ -35,11 +35,12 @@ Each account has a starting balance **as on a date** (Settings → Starting bala
 bank/cash = balance, credit card = amount owed, investment = principal invested so far.
 Only entries dated on or after that date move the account's balance; earlier entries still count in income/expense reports.
 
-### Money Manager
-One page (sidebar) for everything you have and owe: Bank Accounts (bank, savings/current/salary), Credit Cards
-(issuer, optional limit, bill day and due day → limit used, next due date), Cash, plus summaries of Investments and
-Loans & EMIs with links to their pages. Net worth = bank + cash + investments − card outstanding − loans.
-Settings keeps only categories, payment modes, security and backup.
+### Accounts (was Money Manager)
+Where your everyday money is: Bank Accounts (bank, savings/current/salary), Credit Cards (issuer, optional limit, bill
+day and due day → limit used, next due date, and the card EMIs running on it, linked to Loans & EMIs) and Cash.
+Each page has one job: **Dashboard** = how am I doing (net worth = bank + cash + investments − card outstanding −
+loans, coming up); **Accounts** = bank, cards, cash; **Investments** = what I own that grows; **Loans & EMIs** = what I
+owe on a schedule; **Monthly Budget** = the plan for the coming months (up to three). Settings keeps only categories, payment modes, security and backup.
 
 ### Credit cards
 A swipe is an expense from the card account. The bill payment is a transfer bank → card, so spending is counted once.
@@ -124,6 +125,25 @@ A loan that's already running (EMIs paid before tracking) starts its loan accoun
 day after the last of those EMIs. Every action is a `loan_events` row listing the entries it made, so "Undo last" and
 "Delete loan" remove exactly those entries. Net worth = bank & cash + investments − card outstanding − loans outstanding.
 
+### Monthly Budget
+A small sheet of its own (migrations 020, 021). You add **budget items**
+(`budget_items`: income or expense, a name; they exist only here, not as categories) and per month an amount, an
+optional note and, for expenses, a **done** tick (`budget_entries`). Nothing is read from transactions and nothing is
+added automatically.
+Months: you choose them (`budget_months`), at most three, from this month up to six months ahead; it starts with the
+next two. "+ Add month" brings one in (empty); **Delete** removes a month's column with everything in it; **Clear**
+empties a month but keeps it. A month stays until it ends (so payments can still be ticked), then drops off. Per month:
+income, expenses, paid (ticked), still to pay, and **sufficient** (income − expenses ≥ 0, spare shown) or **short by**
+the difference. "Copy <previous month>" copies amounts and notes (ticks start empty); deleting an item removes it from
+every month.
+On phones one month is shown at a time (tabs).
+
+### Help (ⓘ)
+Short explanations of terms sit behind small ⓘ buttons (transaction types, principal, payment mode, budget done and
+sufficient, close vs delete, current value, CNC/MTF/intraday, prepayment mode, interest-only expense, card
+dues). All texts are in `frontend/js/help.js`. The dashboard's "Where the money went" is a pie of the top 6 categories
+plus "Others".
+
 ## Tables
 
 | Table | Key fields |
@@ -134,6 +154,7 @@ day after the last of those EMIs. Every action is a `loan_events` row listing th
 | entries | date, type, amount, category_id, from_account_id, to_account_id, payment_mode_id, principal_amount, note, created_at, updated_at |
 | investment_details | account_id, type_id, inv_type (calculation), institution, held_at_account_id, amount, rate, start_date, term_months, term_days, maturity_date, payout, goal_pct, goal_profit, goal_date, current_value, current_value_date, extra (JSON), notes |
 | investment_types (009) | name, works_like, builtin (code of the 8 built-in types), fields (JSON), active, sort_order |
+| budget_items / budget_entries / budget_months | Monthly Budget: your own items; amount, note and done per month; the months in the plan |
 | share_actions / share_dividends | trading journal and dividends per share account |
 | metal_items | gold coins / silver bars, each with its purchase-day rate (migration 008; metal_rates dropped) |
 | loans / loan_events | loan terms (rate worked out) and every EMI, prepayment, closure with its entry ids (migration 006 also adds account kind `loan`) |
@@ -150,7 +171,7 @@ Master data is never hard-deleted once used; it is deactivated so history stays 
 | `GET /api/masters`, `POST /api/masters/<table>`, `PUT/DELETE /api/masters/<table>/<id>` | accounts, categories, payment_modes |
 | `PUT /api/masters/accounts/opening` | save starting balances of many accounts at once |
 | `GET /api/reports/dashboard?month=` | month summary, previous month, top categories, 12-month series, balances |
-| `GET /api/reports/money` | Money Manager: banks, cards (limit, due), cash, investment and loan summaries, net worth |
+| `GET /api/reports/money` | Accounts: banks, cards (limit, due, EMIs on the card), cash; totals incl. net worth |
 | `GET /api/reports/summary · monthly · categories · grid · payment-modes · balances` | consolidated figures for `?month=` or `?from=&to=` |
 | `GET/POST /api/investments`, `GET/PUT /api/investments/<id>` | overview (by type, upcoming) / create; one investment with its summary |
 | `POST /api/investments/<id>/funds · withdraw · redeem · payout` | money in / out (normal entries underneath) |
@@ -209,5 +230,5 @@ Master data is never hard-deleted once used; it is deactivated so history stays 
 | Phase | Feature |
 | --- | --- |
 | 2 | ✓ Investments (shares journal, FD, RD, PPF, gold, silver), net worth. ✓ Loans & EMIs. Next: share-tracker import |
-| 3 | Category budgets; recurring entries (rent, SIP, EMI) |
+| 3 | ✓ Monthly Budget (own items, up to three months, done ticks, sufficient / short). Next: recurring entries |
 | 4 | Bank / card statement CSV import with duplicate detection |

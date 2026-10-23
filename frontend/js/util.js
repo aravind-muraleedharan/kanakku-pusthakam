@@ -64,7 +64,7 @@ export function dayLabel(iso) {
   return `${+d} ${MONTHS[+m - 1]}${y === t.slice(0, 4) ? "" : " " + y}`;
 }
 
-export const TYPE_LABEL = { expense: "Expense", income: "Income", transfer: "Transfer", invest: "Invest", redeem: "Redeem" };
+export const TYPE_LABEL = { income: "Income", expense: "Expense", transfer: "Transfer", invest: "Invest", redeem: "Maturity" };   // stored as "redeem": money back from an investment
 export const KIND_LABEL = { bank: "Bank", credit_card: "Credit card", cash: "Cash", investment: "Investment", loan: "Loan" };
 
 /** Escape text for safe use inside HTML templates. */

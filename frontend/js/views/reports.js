@@ -96,7 +96,7 @@ async function monthly(body, q, range) {
       ${tile("Income", money(sum.income), `avg ${money(Math.round(sum.income / n))}/month`)}
       ${tile("Expense", money(sum.expense), `avg ${money(Math.round(sum.expense / n))}/month`)}
       ${tile("Net savings", money(sum.net), sum.savings_rate === null ? "—" : `${sum.savings_rate}% saved`)}
-      ${tile("Invested", money(sum.invested), sum.redeemed_principal ? `${money(sum.redeemed_principal)} redeemed` : "principal put in")}
+      ${tile("Invested", money(sum.invested), sum.redeemed_principal ? `${money(sum.redeemed_principal)} returned` : "principal put in")}
     </div>
     <section class="panel" style="margin-top:16px"><div class="panel-body" id="rp-chart"></div></section>
     <section class="panel" style="margin-top:16px">
