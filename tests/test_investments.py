@@ -202,6 +202,34 @@ class InvestmentsTest(unittest.TestCase):
         self.assertEqual(g["account"]["name"], "SBI FD 2y")
         self.assertEqual(g["opening_balance"], 50000)             # already-held FD: deposit counted as invested
 
+    def test_editing_fd_deposit_keeps_invested_in_step(self):
+        today = TODAY.isoformat()
+        # paid from the bank: the deposit transaction (and the bank balance) follow the new amount
+        fd = self.new(name="New FD", inv_type="fd", amount="16252", rate="6.25", start_date=today, term_months=12,
+                      paid_from_account_id=self.bank)
+        fid = fd["account"]["id"]
+        g = self.c.put(f"/api/investments/{fid}", json={"amount": "16372"}).get_json()
+        self.assertEqual((g["summary"]["invested"], g["summary"]["value"]), (16372, 16372))     # no made-up gain
+        self.assertEqual(self.bank_balance(), -16372)
+        # an FD already held: the amount already invested follows
+        held = self.new(name="Held FD", inv_type="fd", amount="50000", rate="7", start_date="2025-01-01", term_months=24)
+        hid = held["account"]["id"]
+        g = self.c.put(f"/api/investments/{hid}", json={"amount": "55000"}).get_json()
+        self.assertEqual((g["opening_balance"], g["summary"]["invested"]), (55000, 55000))
+        # a deposit already out of step (from before this fix) is repaired by any save
+        with self.app.app_context():
+            from backend.db import get_db
+            get_db().execute("UPDATE investment_details SET amount = 1700000 WHERE account_id = ?", (fid,))
+            get_db().commit()
+        g = self.c.put(f"/api/investments/{fid}", json={"name": "New FD 2"}).get_json()
+        self.assertEqual(g["summary"]["invested"], 17000)
+        self.assertEqual(self.bank_balance(), -17000)
+        # once money has come back, the deposit can't change here
+        self.act(hid, "redeem", amount="10000", date=today, to_account_id=self.bank, principal_amount="10000")
+        r = self.c.put(f"/api/investments/{hid}", json={"amount": "60000"})
+        self.assertEqual(r.status_code, 400, r.get_json())
+        self.assertEqual(self.c.put(f"/api/investments/{hid}", json={"rate": "7.1"}).status_code, 200)  # other edits fine
+
     def test_plain_investment_account_gets_details(self):
         r = self.c.post("/api/masters/accounts", json={"name": "KSFE Chitty", "kind": "investment", "inv_type": "chitty"})
         self.assertEqual(r.status_code, 201)

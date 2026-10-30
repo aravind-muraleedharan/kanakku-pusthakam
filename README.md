@@ -30,7 +30,7 @@ Stop the app with **Ctrl+C** in the terminal.
 
 ## Features
 
-- **Fast entry:** income, expense, transfer, invest and maturity, with today's date pre-filled and the payment mode
+- **Fast entry:** income, expense, transfer, invest and maturity, with yesterday's date pre-filled (one tap for today) and the payment mode
   (UPI, card, cash…) picked from the account
 - **Credit cards done right:** a card swipe is the expense; paying the bill is a transfer, so nothing is counted twice.
   Accounts shows what you owe on each card, its limit, the next due date and the EMIs running on it

@@ -2,7 +2,7 @@
 import { api } from "../api.js";
 import { info } from "../help.js";
 import { masters, active, invalidateMasters } from "../state.js";
-import { $, $$, confirmDialog, dateLabel, esc, modal, money, options, toast, todayISO } from "../util.js";
+import { $, $$, backButton, confirmDialog, dateLabel, esc, modal, money, options, toast, todayISO } from "../util.js";
 
 const TYPE_LABEL = { cc_emi: "Credit card EMI", personal: "Personal loan", other: "Other loan" };
 const TYPE_COLOR = { cc_emi: "var(--t-share)", personal: "var(--t-chitty)", other: "var(--t-other)" };
@@ -101,14 +101,13 @@ function drawLoan() {
   const hasEvents = rows.some((r) => r.event_id) ;
   $("#view").innerHTML = `
     <div class="page-head">
-      <div>
-        <a class="small" href="#/loans">← Loans &amp; EMIs</a>
-        <h1 style="margin-top:6px">${esc(ln.name)}</h1>
+      <div class="title-row">${backButton("#/loans", "Loans & EMIs")}<div>
+        <h1>${esc(ln.name)}</h1>
         <div class="sub muted small" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${chip(ln.loan_type)}
           ${ln.lender ? `<span>${esc(ln.lender)}</span>` : ""}
           <span>· ${esc(ln.loan_type === "cc_emi" ? `on ${ln.account}, ${ln.category}` : `paid from ${ln.bank_account}`)}</span>
           ${open ? "" : `<span class="status-pill on">Closed ${ln.closed_date ? esc(dateLabel(ln.closed_date)) : ""}</span>`}</div>
-      </div>
+      </div></div>
       <div class="toolbar">${hasEvents ? b("undo", "Undo last") : ""}${open ? b("prepay", "Prepay") + b("close", "Close loan") : ""}
         ${b("edit", "Edit")}${open && s.next ? b("pay", "Pay EMI", true) : ""}</div>
     </div>

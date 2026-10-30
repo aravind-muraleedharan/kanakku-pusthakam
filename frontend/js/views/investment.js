@@ -2,7 +2,7 @@
 import { api } from "../api.js";
 import { info } from "../help.js";
 import { masters, active, invalidateMasters } from "../state.js";
-import { $, $$, confirmDialog, dateLabel, esc, modal, money, options, toast, todayISO, TYPE_LABEL as ENTRY_LABEL } from "../util.js";
+import { $, $$, backButton, confirmDialog, dateLabel, esc, modal, money, options, toast, todayISO, TYPE_LABEL as ENTRY_LABEL } from "../util.js";
 import { gainCls, investmentForm, pct, typeChip } from "./investments.js";
 
 let inv, M, id;
@@ -29,14 +29,13 @@ function draw() {
   const since = d.start_date || a.opening_date;
   $("#view").innerHTML = `
     <div class="page-head">
-      <div>
-        <a class="small" href="#/investments">← Investments</a>
-        <h1 style="margin-top:6px">${esc(a.name)}</h1>
+      <div class="title-row">${backButton("#/investments", "Investments")}<div>
+        <h1>${esc(a.name)}</h1>
         <div class="sub muted small" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${typeChip(inv.type.name, inv.type.color)}
           ${d.held_at || d.institution ? `<span>${esc(d.held_at || d.institution)}</span>` : ""}
           ${since ? `<span>· since ${esc(dateLabel(since))}</span>` : ""}
           ${s.closed || !a.active ? `<span class="status-pill off">Closed</span>` : ""}</div>
-      </div>
+      </div></div>
       <div class="toolbar">${a.active ? buttons(t, s) : ""}<button class="btn" data-do="edit">Edit</button>
         ${a.active ? (s.closed ? "" : `<button class="btn" data-do="close">Close</button>`)
           : `<button class="btn" data-do="reopen">${d.closed_on ? "Undo closing" : "Reopen"}</button>`}

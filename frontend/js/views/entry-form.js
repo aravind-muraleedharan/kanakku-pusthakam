@@ -4,7 +4,7 @@ import { api } from "../api.js";
 import { info } from "../help.js";
 import { active, invalidateMasters, masters } from "../state.js";
 import {
-  $, $$, addDays, confirmDialog, esc, modal, money, options, store, toast, todayISO, KIND_LABEL, TYPE_LABEL,
+  $, $$, addDays, backButton, confirmDialog, esc, modal, money, options, store, toast, todayISO, KIND_LABEL, TYPE_LABEL,
 } from "../util.js";
 
 const TYPE_HELP = {
@@ -49,7 +49,8 @@ export async function render(params) {
     };
   } else {
     const type = TYPE_LABEL[params.type] ? params.type : store.get("lastType", "expense");
-    v = { type, date: todayISO(), amount: "", category_id: "", from_account_id: "", to_account_id: "",
+    v = { type, date: addDays(todayISO(), -1), amount: "",          // new entries start on yesterday
+          category_id: "", from_account_id: "", to_account_id: "",
           payment_mode_id: "", payment_mode_other: "", principal_amount: "", note: "" };
     applyRemembered();
   }
@@ -146,9 +147,9 @@ function draw() {
   const cats = categoryList();
   let html = `
     <div class="page-head">
-      <div><h1>${editing ? "Edit transaction" : "Add transaction"}</h1>
-      ${editing ? `<div class="sub small faint">Created ${esc(editing.created_at)}${editing.updated_at !== editing.created_at ? ` · edited ${esc(editing.updated_at)}` : ""}</div>` : ""}</div>
-      <a class="btn btn-ghost" href="#/entries">← Transactions</a>
+      <div class="title-row">${backButton("#/entries", "Transactions")}
+        <div><h1>${editing ? "Edit transaction" : "Add transaction"}</h1>
+        ${editing ? `<div class="sub small faint">Created ${esc(editing.created_at)}${editing.updated_at !== editing.created_at ? ` · edited ${esc(editing.updated_at)}` : ""}</div>` : ""}</div></div>
     </div>
     <form class="panel panel-pad form-card" id="entry-form" novalidate autocomplete="off">
       <div class="types-row"><div class="seg types" role="tablist" aria-label="Transaction type">

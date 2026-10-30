@@ -699,6 +699,10 @@ def update(account_id, p):
     if t not in OWN_VALUE:
         c["current_value"] = c["current_value_date"] = None
     conn = get_db()
+    if t == "fd" and old["inv_type"] == "fd":
+        money_in, moved = _fd_money_in(acc), c["start_date"] != old["start_date"]
+        if c["amount"] != old["amount"] or moved or (money_in is not None and money_in != c["amount"]):
+            _sync_fd_deposit(acc, c, move_date=moved)   # "invested" (and the bank, if it paid) follows the deposit
     if p.get("name") and p["name"].strip() != acc["name"]:
         if one("SELECT id FROM accounts WHERE name = ? COLLATE NOCASE AND id != ?", (p["name"].strip(), account_id)):
             raise ApiError("That name is already used", field="name")
@@ -723,6 +727,35 @@ def update(account_id, p):
                  list(c.values()) + [account_id])
     conn.commit()
     return get(account_id)
+
+
+def _fd_money_in(acc):
+    """The money that went into an FD: its one deposit transaction, or the amount already held (None if unclear)."""
+    deposits = [f for f in _flows(acc["id"], None) if f["type"] == "invest" and f["to_account_id"] == acc["id"]]
+    if len(deposits) == 1 and not acc["opening_balance"]:
+        return deposits[0]["amount"]
+    return acc["opening_balance"] if not deposits else None
+
+
+def _sync_fd_deposit(acc, c, move_date=True):
+    """An FD's deposit was edited: change the money that went into it to match.
+
+    An FD you already held keeps its deposit as the amount already invested (opening balance); an FD paid from a
+    bank has one invest transaction, whose amount and date follow the deposit (so the bank's balance is right too).
+    """
+    flows = _flows(acc["id"], None)
+    if any(f["from_account_id"] == acc["id"] for f in flows):
+        raise ApiError("Money has already come back from this FD, so its deposit can't be changed here", field="amount")
+    deposits = [f for f in flows if f["type"] == "invest" and f["to_account_id"] == acc["id"]]
+    if not deposits:
+        get_db().execute("UPDATE accounts SET opening_balance = ?, opening_date = ? WHERE id = ?",
+                         (c["amount"], c["start_date"], acc["id"]))
+    elif len(deposits) == 1 and not acc["opening_balance"]:
+        e = entries_svc.get(deposits[0]["id"])
+        entries_svc.update(e["id"], {**e, "amount": str(to_rupees(c["amount"])),
+                                     "date": c["start_date"] if move_date and c["start_date"] else e["date"]})
+    else:
+        raise ApiError("This FD has more than one deposit. Change them in Transactions instead", field="amount")
 
 
 def set_value(account_id, p):

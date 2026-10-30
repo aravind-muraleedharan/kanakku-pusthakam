@@ -27,6 +27,12 @@ const trim = (x) => (x >= 10 ? Math.round(x).toString() : x.toFixed(1).replace(/
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+/** The round ← button shown left of a page title. `to` is the page it goes back to. */
+export function backButton(href, to) {
+  return `<a class="back-btn" href="${href}" title="Back to ${esc(to)}" aria-label="Back to ${esc(to)}">`
+    + `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg></a>`;
+}
+
 export function todayISO() {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

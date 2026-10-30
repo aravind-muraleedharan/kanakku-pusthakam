@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.1 (2026-10-30)
+
+### Fixed
+- Editing a Fixed Deposit's amount now also changes the money that went into it (the deposit transaction, or the
+  amount already invested), so "Invested" no longer shows a gain that doesn't exist and the bank balance stays right.
+  If an FD is already out of step, open it, click **Edit** and **Save** to set it right
+
+### Changed
+- New transactions start with **yesterday's** date (Today is one tap away)
+- A round back button next to the title on Add / Edit transaction, investments and loans
+
 ## 1.2.0 (2026-10-23)
 
 ### New
