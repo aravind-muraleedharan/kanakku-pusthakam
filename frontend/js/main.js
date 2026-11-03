@@ -1,7 +1,7 @@
 // Hash router: #/dashboard, #/accounts, #/entries, #/budget, #/investments, #/investment/3, #/add, #/edit/12, #/reports, #/settings
 // Every screen except forgot/reset password requires a full login (password + authenticator code).
 import { api } from "./api.js";
-import { $, $$, esc, toast } from "./util.js";
+import { $, $$, esc, goBack, notePageChange, toast } from "./util.js";
 import * as auth from "./views/auth.js";
 import * as dashboard from "./views/dashboard.js";
 import * as entries from "./views/entries.js";
@@ -106,6 +106,25 @@ initTheme();
 // Dropdowns keep the choice you made with the mouse. Once picked, the dropdown lets go of the keyboard, so typing
 // into the next field can't jump it to another option (browsers select options by first letter), and scrolling
 // the page over an open-and-closed dropdown never changes it.
+// Chrome on Linux can open a dropdown's list under the pointer while the button is still down; releasing it then
+// picks whatever item is under the pointer. So for mouse clicks the list opens on release (click) instead of on press.
+// Keyboard, touch and browsers that can't open a list from script keep their normal behaviour.
+const canOpenList = typeof HTMLSelectElement !== "undefined" && "showPicker" in HTMLSelectElement.prototype;
+let pressed = null;                                  // the dropdown the mouse button went down on
+document.addEventListener("mousedown", (e) => {
+  const sel = e.target.closest?.("select");
+  pressed = null;
+  if (!sel || !canOpenList || e.button !== 0 || sel.disabled) return;
+  e.preventDefault();                                // don't open on press
+  sel.focus();
+  pressed = sel;
+}, true);
+document.addEventListener("click", (e) => {
+  const sel = e.target.closest?.("select");
+  if (!sel || sel !== pressed) return;               // only a press + release on the box (not a pick in the list)
+  pressed = null;
+  try { sel.showPicker(); } catch { /* opens on the next click */ }
+}, true);
 document.addEventListener("pointerdown", (e) => {
   const sel = e.target.closest?.("select");
   if (sel) sel.dataset.picked = "1";
@@ -136,7 +155,13 @@ new MutationObserver((list) => {
   for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1) noHistory(n);
 }).observe(document.body, { childList: true, subtree: true });
 
-window.addEventListener("hashchange", () => navigate());
+window.addEventListener("hashchange", () => { notePageChange(); navigate(); });
+document.addEventListener("click", (e) => {        // back buttons and Cancel: return to the page you came from
+  const b = e.target.closest("a[data-back]");
+  if (!b || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  e.preventDefault();
+  goBack(b.getAttribute("href"));
+});
 document.addEventListener("click", (e) => { if (e.target.closest("[data-retry]")) location.reload(); });
 window.addEventListener("kp:logged-out", () => {
   if (!document.body.classList.contains("auth-mode")) { toast("You were logged out"); navigate(); }

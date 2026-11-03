@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { info } from "../help.js";
 import { masters, active, invalidateMasters } from "../state.js";
 import { $, $$, backButton, confirmDialog, dateLabel, esc, modal, money, options, toast, todayISO } from "../util.js";
+import { linkModeToAccount, modeSelect } from "./investments.js";
 
 const TYPE_LABEL = { cc_emi: "Credit card EMI", personal: "Personal loan", other: "Other loan" };
 const TYPE_COLOR = { cc_emi: "var(--t-share)", personal: "var(--t-chitty)", other: "var(--t-other)" };
@@ -166,16 +167,22 @@ async function refresh(promise, msg) {
 const fld = (label, html, hint = "") => `<div class="field"><label${label.startsWith("*") ? ' class="req"' : ""}>${label.replace(/^\*/, "")}</label>${html}${hint ? `<div class="hint">${hint}</div>` : ""}</div>`;
 
 async function sourceField(l) {
-  if (l.loan_type === "cc_emi") return "";
+  if (l.loan_type === "cc_emi") return "";          // charged to the card (payment mode: Credit Card)
   const M = await masters();
   const banks = active(M.accounts).filter((a) => ["bank", "cash"].includes(a.kind));
-  return fld("*Paid From", `<select name="from_account_id">${options(banks, l.bank_account_id)}</select>`);
+  return fld("*Paid From", `<select name="from_account_id">${options(banks, l.bank_account_id)}</select>`)
+    + fld("Payment mode", modeSelect(M, "payment_mode_id", l.bank_account_id));
+}
+
+/** After a payment form opens: the payment mode follows the account it's paid from. */
+async function linkMode() {
+  linkModeToAccount($("#modal-root"), "from_account_id", "payment_mode_id", await masters());
 }
 
 /** Pay the next EMI of a loan. Resolves to the updated loan, or null. */
 export async function payModal(l) {
   const n = l.summary.next;
-  return modal({
+  const p = modal({
     title: `Pay EMI ${n.no} · ${l.name}`,
     body: fld("*Date", `<input type="date" name="date" value="${esc(n.date <= todayISO() ? n.date : todayISO())}">`)
       + fld("*Amount (₹)", `<input name="amount" inputmode="decimal" value="${n.amount}">`,
@@ -184,6 +191,8 @@ export async function payModal(l) {
     submitLabel: "Record EMI",
     onSubmit: async (v) => { const r = await api.loanPost(l.id, "emi", v); toast("EMI recorded"); return r; },
   });
+  linkMode();
+  return p;
 }
 
 function wireLoan() {
@@ -199,6 +208,7 @@ function wireLoan() {
         + await sourceField(ln),
       onSubmit: (v) => refresh(api.loanPost(ln.id, "prepay", v), "Prepayment recorded"),
     });
+    linkMode();
   });
   on("close", async () => {
     modal({
@@ -210,6 +220,7 @@ function wireLoan() {
       submitLabel: "Close loan",
       onSubmit: (v) => refresh(api.loanPost(ln.id, "close", v), "Loan closed"),
     });
+    linkMode();
   });
   on("undo", async () => {
     if (await confirmDialog("Undo the last payment?", "The latest EMI, prepayment or closure and its transactions will be removed.", "Undo")) {

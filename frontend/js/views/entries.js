@@ -1,7 +1,7 @@
 // Transactions list with filters, totals, CSV export.
 import { api } from "../api.js";
 import { masters } from "../state.js";
-import { $, dayLabel, esc, KIND_LABEL, money, monthLabel, options, shiftMonth, thisMonth, TYPE_LABEL } from "../util.js";
+import { $, bindMonthPicker, dayLabel, esc, KIND_LABEL, money, monthLabel, monthPicker, options, shiftMonth, thisMonth, TYPE_LABEL } from "../util.js";
 import { ICON } from "../icons.js";
 
 const PAGE = 200;
@@ -25,7 +25,7 @@ export async function render(params) {
       <div class="filters">
         <div class="month-nav">
           <button class="btn btn-icon" data-shift="-1" aria-label="Previous month">‹</button>
-          <input type="month" id="flt-month" value="${esc(f.month || "")}" title="Month">
+          ${monthPicker("flt-month", f.month || "")}
           <button class="btn btn-icon" data-shift="1" aria-label="Next month">›</button>
         </div>
         <select id="flt-type"><option value="">All types</option>${Object.entries(TYPE_LABEL).map(([k, l]) => `<option value="${k}" ${f.type === k ? "selected" : ""}>${l}</option>`).join("")}</select>
@@ -44,6 +44,7 @@ export async function render(params) {
     if (!next.month) next.month = "";   // explicit "all time"
     location.hash = "#/entries?" + new URLSearchParams(next).toString();
   };
+  bindMonthPicker($("#flt-month"));
   $("#flt-month").addEventListener("change", (e) => go({ month: e.target.value }));
   view.querySelectorAll("[data-shift]").forEach((b) => b.addEventListener("click", () =>
     go({ month: shiftMonth(f.month || thisMonth(), +b.dataset.shift) })));
@@ -68,7 +69,7 @@ const filtered = (f) => !!(f.type || f.category_id || f.account_id || f.q || f.f
 function accountOptions(accounts, sel) {
   const groups = {};
   accounts.forEach((a) => (groups[a.kind] ||= []).push(a));
-  return `<option value="">All accounts</option>` + ["bank", "credit_card", "cash", "investment", "loan"].filter((k) => groups[k])
+  return `<option value="">All accounts</option>` + ["bank", "credit_card", "cash", "wallet", "investment", "loan"].filter((k) => groups[k])
     .map((k) => `<optgroup label="${esc(KIND_LABEL[k])}">${options(groups[k], sel)}</optgroup>`).join("");
 }
 
@@ -83,13 +84,14 @@ async function load(query, offset, previous) {
   const items = previous.concat(res.items);
   const t = res.totals;
   $("#ent-totals").classList.toggle("hidden", !res.count);
-  $("#ent-totals").innerHTML = `
-    <span>${res.count} transaction${res.count === 1 ? "" : "s"}</span>
-    <span>Income <b class="c-income">${money(t.income)}</b></span>
-    <span>Expense <b class="c-expense">${money(t.expense)}</b></span>
-    <span>Net <b>${money(t.income - t.expense)}</b></span>
-    ${t.invested ? `<span>Invested <b class="c-invest">${money(t.invested)}</b></span>` : ""}
-    ${t.transferred ? `<span>Transfers <b class="c-transfer">${money(t.transferred)}</b></span>` : ""}`;
+  const net = t.income - t.expense;
+  const stat = (label, value, cls) => `<div class="ts-item"><span class="ts-k">${label}</span><b class="ts-v ${cls}">${value}</b></div>`;
+  $("#ent-totals").innerHTML = stat("Income", money(t.income), "c-income")
+    + stat("Expense", money(t.expense), "c-expense")
+    + stat("Net", money(net, { sign: true }), net < 0 ? "c-expense" : "c-income")
+    + (t.invested ? stat("Invested", money(t.invested), "c-invest") : "")
+    + (t.transferred ? stat("Transfers", money(t.transferred), "c-transfer") : "")
+    + `<span class="ts-count">${res.count} transaction${res.count === 1 ? "" : "s"}</span>`;
 
   if (!items.length) {
     const f = Object.fromEntries(new URLSearchParams(location.hash.split("?")[1] || ""));

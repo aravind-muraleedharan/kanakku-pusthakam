@@ -116,6 +116,10 @@ function table(items, byType) {
     i.institution && esc(i.institution),
     i.instalment && `${money(i.instalment)}/month`,
     i.next_due && `next due ${esc(dateLabel(i.next_due))}`,
+    // every instalment paid: say so (the maturity date is in its own column); once matured, prompt to close it
+    i.all_paid && (i.maturity_date && i.maturity_date <= todayISO()
+      ? `<span class="inv-matured" title="Use Close on its page to record the money received">matured · close it</span>`
+      : "all instalments paid"),
     i.rate && `${i.rate}%`,
   ].filter(Boolean).join(" · ");
   const row = (i) => `<a class="inv-row" href="#/investment/${i.id}">
@@ -182,8 +186,6 @@ function fieldDefs(d, banks, bankAccounts, isNew, payAccounts) {
         <label><input name="term_years" inputmode="numeric" value="${years}" placeholder="0" aria-label="Years" data-recalc><span class="u">years</span></label>
         <label><input name="term_months" inputmode="numeric" value="${months}" placeholder="0" aria-label="Months" data-recalc><span class="u">months</span></label>
         <label data-days><input name="term_days" inputmode="numeric" value="${val("term_days")}" placeholder="0" aria-label="Days" data-recalc><span class="u">days</span></label></div>` },
-    { name: "due_day", types: "rd goldtree chitty", label: "Instalment Due Day", hint: "Day of the month each instalment is due (empty = the start date's day)",
-      html: `<input name="due_day" inputmode="numeric" maxlength="2" value="${val("due_day")}" placeholder="e.g. 5">` },
     { name: "prepaid", types: "rd goldtree chitty", label: "Instalments Already Paid",
       hint: isNew ? "If you started it earlier. Leave empty for a new one." : "Paid before you started using the app",
       html: `<input name="prepaid_instalments" inputmode="numeric" maxlength="3" value="${val("prepaid_instalments")}" placeholder="0">` },
@@ -202,6 +204,8 @@ function fieldDefs(d, banks, bankAccounts, isNew, payAccounts) {
     { name: "paid_from_account_id", types: isNew ? "fd" : "", label: "Paid From", full: true,
       hint: "Choose the bank only for a new deposit you're opening now. For one you already have, leave it.",
       html: `<select name="paid_from_account_id"><option value="">I already have this (don't record a payment)</option>${options(banks.filter((b) => b.active))}</select>` },
+    { name: "payment_mode_id", types: isNew ? "fd" : "", label: "Payment mode", hint: "How the deposit was paid",
+      html: `<select name="payment_mode_id"></select>` },
     { name: "goal_pct", types: "share", label: "Goal: Gain %", hint: "e.g. 50 = 50% of funds added",
       html: `<input name="goal_pct" inputmode="decimal" value="${val("goal_pct")}">` },
     { name: "goal_profit", types: "share", label: "Forecast Profit (₹)", html: `<input name="goal_profit" inputmode="decimal" value="${val("goal_profit")}">` },
@@ -222,14 +226,14 @@ function fieldDefs(d, banks, bankAccounts, isNew, payAccounts) {
 // Order of the fields for each calculation: where it's held → money → dates & terms → already invested.
 // (Type and Account Name always come first; your extra fields and then Notes always come last.)
 const FIELD_ORDER = {
-  fd: ["held_at", "amount", "rate", "payout", "start_date", "tenure", "maturity_date", "paid_from_account_id"],
-  rd: ["held_at", "amount", "rate", "due_day", "start_date", "tenure", "maturity_date", "prepaid"],
+  fd: ["held_at", "amount", "rate", "payout", "start_date", "tenure", "maturity_date", "paid_from_account_id", "payment_mode_id"],
+  rd: ["held_at", "amount", "rate", "start_date", "tenure", "maturity_date", "prepaid"],
   ppf: ["held_at", "start_date", "rate", "maturity_date", "opening_balance", "opening_date"],
   share: ["broker", "opening_balance", "opening_date", "goal_pct", "goal_profit", "goal_date"],
-  gold: ["buy_date", "buy_total", "buy_rate", "buy_grams", "buy_purity", "buy_bill", "buy_from", "buy_doc", "buy_note"],
-  silver: ["buy_date", "buy_total", "buy_rate", "buy_grams", "buy_purity", "buy_bill", "buy_from", "buy_doc", "buy_note"],
-  chitty: ["institution", "amount", "due_day", "start_date", "tenure", "maturity_date", "prepaid", "opening_paid"], other: ["institution", "opening_balance", "opening_date"],
-  goldtree: ["amount", "due_day", "start_date", "tenure", "maturity_date", "prepaid", "opening_paid", "opening_grams"],
+  gold: ["buy_date", "buy_total", "buy_rate", "buy_grams", "buy_purity", "buy_bill", "buy_from", "buy_mode", "buy_doc", "buy_note"],
+  silver: ["buy_date", "buy_total", "buy_rate", "buy_grams", "buy_purity", "buy_bill", "buy_from", "buy_mode", "buy_doc", "buy_note"],
+  chitty: ["institution", "amount", "start_date", "tenure", "maturity_date", "prepaid", "opening_paid"], other: ["institution", "opening_balance", "opening_date"],
+  goldtree: ["amount", "start_date", "tenure", "maturity_date", "prepaid", "opening_paid", "opening_grams"],
 };
 
 function buyFields(types, payAccounts) {
@@ -246,12 +250,37 @@ function buyFields(types, payAccounts) {
       html: `<select name="buy_purity">${[["24K · 999", 99.9], ["24K · 995", 99.5], ["22K · 916", 91.6], ["18K · 750", 75], ["Silver · 999", 99.9], ["Sterling · 925", 92.5]]
         .map(([l, v]) => `<option value="${v}" ${v === 91.6 ? "selected" : ""}>${l}</option>`).join("")}</select>` },
     { name: "buy_bill", types, label: "Bill Name", html: `<input name="buy_bill" maxlength="80" placeholder="Name on the bill">` },
-    { name: "buy_from", types, req: types, label: "Payment Method", hint: "The account it was paid from",
+    { name: "buy_from", types, req: types, label: "Paid From", hint: "The account it was paid from",
       html: `<select name="buy_from">${options(pay, payAccounts[0]?.id)}</select>` },
+    { name: "buy_mode", types, label: "Payment mode", html: `<select name="buy_mode"></select>` },
     { name: "buy_doc", types, label: "Transaction Document", full: true,
       html: `<input name="buy_doc" maxlength="200" placeholder="e.g. bill / invoice no., UPI ref, or where the receipt is kept">` },
     { name: "buy_note", types, label: "Note", full: true, html: `<input name="buy_note" maxlength="300">` },
   ];
+}
+
+const ordinal = (n) => n + (n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th");
+
+/** The payment mode a payment from this account usually is: card -> Credit Card, cash -> Cash, bank -> UPI. */
+export function defaultModeId(M, accountId) {
+  const acc = M.accounts.find((a) => String(a.id) === String(accountId));
+  const want = { credit_card: "Credit Card", cash: "Cash", bank: "UPI" }[acc?.kind];
+  return active(M.payment_modes).find((m) => m.name === want)?.id ?? "";
+}
+
+/** A Payment mode dropdown (without "Other", which needs its own text box: use Add transaction for that). */
+export function modeSelect(M, name, accountId) {
+  const list = active(M.payment_modes).filter((m) => m.name.trim().toLowerCase() !== "other");
+  return `<select name="${name}">${options(list, defaultModeId(M, accountId), { placeholder: "—" })}</select>`;
+}
+
+/** Keep the payment mode in step with the account it's paid from (until you pick a mode yourself). */
+export function linkModeToAccount(root, accountName, modeName, M) {
+  const acc = root.querySelector(`[name="${accountName}"]`), mode = root.querySelector(`[name="${modeName}"]`);
+  if (!acc || !mode) return;
+  let chosen = false;
+  mode.addEventListener("change", () => { chosen = true; });
+  acc.addEventListener("change", () => { if (!chosen) mode.value = String(defaultModeId(M, acc.value)); });
 }
 
 /** Inputs for a type's own extra fields (named x_<key>). */
@@ -307,7 +336,7 @@ export async function investmentForm(inv, preset = {}) {
       if (byId[v.type_id]?.scheme || byId[v.type_id]?.works_like === "chitty") v.scheme = 1;
       if ("buy_total" in v) {                       // gold / silver: the first purchase
         v.first_item = { date: v.buy_date, total_paid: v.buy_total, rate: v.buy_rate, grams: v.buy_grams, purity: v.buy_purity,
-          bill_name: v.buy_bill, paid_from_account_id: v.buy_from, doc: v.buy_doc, note: v.buy_note };
+          bill_name: v.buy_bill, paid_from_account_id: v.buy_from, payment_mode_id: v.buy_mode, doc: v.buy_doc, note: v.buy_note };
         for (const k of Object.keys(v)) if (k.startsWith("buy_")) delete v[k];
       }
       const r = inv ? await api.updateInvestment(inv.account.id, v) : await api.createInvestment(v);
@@ -360,6 +389,25 @@ export async function investmentForm(inv, preset = {}) {
   // a new tenure or start date works out the maturity date again
   const mat = $("#inv-maturity");
   if (mat) $$("#modal-root [data-recalc]").forEach((i) => i.addEventListener("input", () => { mat.value = ""; }));
+  // RD / Gold Tree / chit fund: instalments are due on the start date's day; say which under the start date
+  const startIn = $(`#modal-root [name="start_date"]`);
+  const dueHint = () => {
+    const t = byId[$("#inv-type").value], kind = t.scheme ? "goldtree" : t.works_like;
+    const box = startIn?.closest(".field")?.querySelector(":scope > .hint");
+    if (!box || !["rd", "goldtree", "chitty"].includes(kind)) return;
+    const day = startIn.value ? +startIn.value.slice(8, 10) : 0;
+    box.textContent = day ? `Instalments are due on the ${ordinal(day)} of each month${day > 28 ? " (the last day in shorter months)" : ""}` : "";
+  };
+  startIn?.addEventListener("input", dueHint);
+  $("#inv-type").addEventListener("change", () => setTimeout(dueHint));
+  // payment mode of the FD deposit / first gold purchase, defaulting from the account it's paid from
+  for (const [accName, modeName] of [["paid_from_account_id", "payment_mode_id"], ["buy_from", "buy_mode"]]) {
+    const m = $(`#modal-root [name="${modeName}"]`);
+    if (!m) continue;
+    m.outerHTML = modeSelect(M, modeName, $(`#modal-root [name="${accName}"]`)?.value);
+    linkModeToAccount($("#modal-root"), accName, modeName, M);
+  }
   sync();
+  dueHint();
   return p;
 }

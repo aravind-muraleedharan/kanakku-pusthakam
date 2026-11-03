@@ -291,21 +291,19 @@ class InvestmentTypesTest(unittest.TestCase):
         start = date.today().replace(day=1) - timedelta(days=40)          # some day ~2 months back
         start = start.replace(day=3)
         rd = self.new(name="RD", inv_type="rd", amount="1000", rate="6.7", start_date=start.isoformat(),
-                      term_years=1, term_months=0, due_day=10)
+                      term_years=1, term_months=0, due_day=10)        # a due day sent anyway is ignored:
         rid = rd["account"]["id"]
-        self.assertEqual(rd["details"]["due_day"], 10)
-        self.assertEqual(rd["summary"]["next_due"], start.replace(day=10).isoformat())   # first instalment
-        for k in range(3):                                                     # pay three
+        self.assertEqual(rd["details"]["due_day"], 3)                 # instalments are due on the start date's day
+        self.assertEqual(rd["summary"]["next_due"], start.isoformat())   # first instalment
+        for _ in range(3):                                                     # pay three
             self.c.post(f"/api/investments/{rid}/funds", json={"amount": "1000", "date": TODAY, "from_account_id": self.bank})
         s = self.c.get(f"/api/investments/{rid}").get_json()["summary"]
         m = start.month + 3
         y = start.year + (m - 1) // 12
-        self.assertEqual(s["next_due"], date(y, (m - 1) % 12 + 1, 10).isoformat())
+        self.assertEqual(s["next_due"], date(y, (m - 1) % 12 + 1, 3).isoformat())
         ov = self.c.get("/api/investments").get_json()
         self.assertEqual(ov["items"][0]["next_due"], s["next_due"])
         self.assertTrue(any(u["kind"] == "rd_due" for u in ov["upcoming"]))
-        self.new(status=400, name="RD2", inv_type="rd", amount="1000", rate="6.7", start_date=TODAY,
-                 term_months=12, due_day=32)
         d = self.new(name="RD3", inv_type="rd", amount="1000", rate="6.7", start_date="2026-01-31", term_months=12)
         self.assertEqual(d["details"]["due_day"], 31)                         # default: the start date's day
         self.assertEqual(d["summary"]["next_due"], "2026-01-31")
@@ -339,6 +337,21 @@ class InvestmentTypesTest(unittest.TestCase):
         self.assertEqual(names, ["Gold coins"])
 
 
+    def test_scheme_instalment_not_missed_before_its_day(self):
+        from backend.services.investments import _scheme_progress
+        d = {"start_date": "2026-10-31", "term_months": 12, "prepaid_instalments": 0, "due_day": None, "amount": 400000}
+        paid_oct = [{"date": "2026-10-31"}]
+        s = _scheme_progress(d, paid_oct, date(2026, 11, 3))
+        self.assertEqual((s["paid_instalments"], s["missed_instalments"], s["next_due"]), (1, 0, "2026-11-30"))
+        s = _scheme_progress(d, paid_oct, date(2026, 11, 30))            # due today: not missed yet
+        self.assertEqual(s["missed_instalments"], 0)
+        s = _scheme_progress(d, paid_oct, date(2026, 12, 1))             # the day after: missed
+        self.assertEqual((s["missed_instalments"], s["next_due"]), (1, "2026-11-30"))
+        s = _scheme_progress({**d, "due_day": 5}, [], date(2026, 10, 31))  # joined 31 Oct, due on the 5th: the first is
+        self.assertEqual((s["missed_instalments"], s["next_due"]), (0, "2026-10-31"))   # due the day you join, not 5 Oct
+        s = _scheme_progress({**d, "due_day": 5}, [], date(2026, 11, 3))   # and unpaid three days later: missed
+        self.assertEqual(s["missed_instalments"], 1)
+
     def test_gold_tree_scheme(self):
         tree = self.types()["Gold Tree"]
         self.assertTrue(tree["scheme"])
@@ -355,7 +368,7 @@ class InvestmentTypesTest(unittest.TestCase):
         self.assertEqual((s["paid_instalments"], s["next_due"]), (0, start.isoformat()))
         self.assertGreaterEqual(s["missed_instalments"], 2)
         # pay the first two months (old ones: already paid), then this month from the bank
-        for k, dt in enumerate([start, start.replace(day=20) + timedelta(days=20)]):
+        for dt in [start, start.replace(day=20) + timedelta(days=20)]:
             self.c.post(f"/api/investments/{gid}/items", json={"date": dt.isoformat(), "total_paid": "4000", "rate": "7000",
                                                              "grams": "0.571", "purity": "91.6"})
         self.c.post(f"/api/investments/{gid}/items", json={"date": TODAY, "total_paid": "4000", "rate": "7350",
@@ -451,7 +464,7 @@ class InvestmentTypesTest(unittest.TestCase):
         # closing gives back everything put in, including what was paid before
         self.c.post(f"/api/investments/{gid}/items", json={"date": TODAY, "total_paid": "4000", "rate": "7350",
                                                          "grams": "0.544", "purity": "91.6", "paid_from_account_id": self.bank})
-        c = self.c.post(f"/api/investments/{gid}/close", json={"date": TODAY, "amount": "17000", "to_account_id": self.bank}).get_json()
+        self.c.post(f"/api/investments/{gid}/close", json={"date": TODAY, "amount": "17000", "to_account_id": self.bank})
         e = next(x for x in self.c.get("/api/entries?month=").get_json()["items"] if x["type"] == "redeem")
         self.assertEqual(e["gain"], 17000 - 16100)
 

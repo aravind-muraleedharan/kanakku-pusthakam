@@ -2,7 +2,7 @@
 import { api } from "../api.js";
 import { donutChart, incomeExpenseChart } from "../charts.js";
 import { typeColor } from "./investments.js";
-import { $, dateLabel, esc, money, monthLabel, shiftMonth, store, thisMonth } from "../util.js";
+import { $, bindMonthPicker, dateLabel, esc, money, monthLabel, monthPicker, shiftMonth, store, thisMonth } from "../util.js";
 
 export async function render(params) {
   const month = /^\d{4}-\d{2}$/.test(params.month || "") ? params.month : thisMonth();
@@ -27,7 +27,7 @@ export async function render(params) {
       <div class="toolbar">
         <div class="month-nav">
           <a class="btn btn-icon" href="#/dashboard?month=${shiftMonth(month, -1)}" aria-label="Previous month">‹</a>
-          <input type="month" id="dash-month" value="${month}">
+          ${monthPicker("dash-month", month)}
           <a class="btn btn-icon" href="#/dashboard?month=${shiftMonth(month, 1)}" aria-label="Next month">›</a>
         </div>
         ${month !== thisMonth() ? `<a class="btn" href="#/dashboard">This month</a>` : ""}
@@ -79,6 +79,7 @@ export async function render(params) {
       </section>
     </div>`;
 
+  bindMonthPicker($("#dash-month"));
   $("#dash-month").addEventListener("change", (e) => { if (e.target.value) location.hash = `#/dashboard?month=${e.target.value}`; });
   incomeExpenseChart($("#dash-chart"), d.last_12_months, { onClick: (m) => { location.hash = `#/dashboard?month=${m}`; } });
   if (inv && inv.by_type.length) {
@@ -113,6 +114,7 @@ function kpi(label, value, color, foot) {
 function netWorth(t) {
   const have = [
     { label: "Bank & cash", value: Math.max(0, t.bank_and_cash), color: "var(--net)", href: "#/accounts" },
+    { label: "Wallets & gift cards", value: Math.max(0, t.wallets || 0), color: "var(--transfer)", href: "#/accounts", hideEmpty: true },
     { label: "Investments", value: Math.max(0, t.investments_value ?? t.invested_principal), color: "var(--income)", href: "#/investments" },
   ];
   const owe = [
@@ -123,7 +125,7 @@ function netWorth(t) {
   const H = sum(have), O = sum(owe), top = Math.max(H, O, 1);
   const bar = (list, total) => `<div class="nw-bar" style="width:${Math.max(2, (total / top) * 100)}%">${list.filter((x) => x.value > 0)
     .map((x) => `<i style="flex:${x.value};background:${x.color}" title="${esc(x.label)}: ${money(x.value)}"></i>`).join("")}</div>`;
-  const legend = (list) => list.map((x) => `<a class="nw-leg" href="${x.href}"><span><i style="background:${x.color}"></i>${esc(x.label)}</span>
+  const legend = (list) => list.filter((x) => !x.hideEmpty || x.value).map((x) => `<a class="nw-leg" href="${x.href}"><span><i style="background:${x.color}"></i>${esc(x.label)}</span>
     <b>${money(x.value)}</b></a>`).join("");
   return `<div class="nw-hero ${t.net_worth < 0 ? "neg" : ""}">${money(t.net_worth)}</div>
     <div class="small faint" style="margin:-2px 0 14px">what you have − what you owe</div>

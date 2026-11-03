@@ -235,7 +235,7 @@ def _summary_rd(acc, d, flows, today):
         paid_count = len(deposits) + (round(acc["opening_balance"] / inst) if inst else 0)
         s.update(expected_instalments=expected, paid_instalments=paid_count,
                  missed_instalments=max(0, expected - paid_count), term_months=months)
-        due_day = d["due_day"] or start.day
+        due_day = start.day                          # due on the start date's day each month
         s["due_day"] = due_day
         if not closed and paid_count < months:          # the next instalment not yet paid
             m = add_months(date(start.year, start.month, 1), paid_count)
@@ -323,15 +323,21 @@ def _scheme_progress(d, items, today, closed=False):
     index = lambda iso: months_between(first, date(int(iso[:4]), int(iso[5:7]), 1))
     paid_months = {index(i["date"]) for i in items if i["date"] >= first.isoformat()}
     paid_months = {m for m in paid_months if 0 <= m < months} | set(range(min(d["prepaid_instalments"] or 0, months)))
-    expected = min(months, months_between(first, date(today.year, today.month, 1)) + 1) if today >= start else 0
-    due_day = d["due_day"] or start.day
+    due_day = start.day                              # due on the start date's day each month
+
+    def due(m):                                   # the due date of instalment m (0 = the first month)
+        mo = add_months(first, m)
+        d_ = date(mo.year, mo.month, min(due_day, calendar.monthrange(mo.year, mo.month)[1]))
+        return max(d_, start) if m == 0 else d_       # the first one is never due before you joined
+
+    # an instalment is only missed once its due date has passed (this month's isn't missed before its day)
+    expected = len([m for m in range(months) if due(m) < today]) if today >= start else 0
     out = {"scheme": True, "term_months": months, "instalment": to_rupees(d["amount"]),
            "paid_instalments": len(paid_months), "expected_instalments": expected,
            "missed_instalments": len([m for m in range(expected) if m not in paid_months]), "due_day": due_day}
     unpaid = [m for m in range(months) if m not in paid_months]
     if unpaid and not closed:
-        m = add_months(first, unpaid[0])
-        out["next_due"] = date(m.year, m.month, min(due_day, calendar.monthrange(m.year, m.month)[1])).isoformat()
+        out["next_due"] = due(unpaid[0]).isoformat()
     return out
 
 
@@ -435,7 +441,10 @@ def overview(today=None):
                 "rate": d["rate"] if d["inv_type"] in ("fd", "rd", "ppf") else None,
                 "instalment": s.get("instalment") if d["inv_type"] in ("rd", "gold", "chitty") else None,
                 "next_due": s.get("next_due") if d["inv_type"] in ("rd", "gold", "chitty") and a["active"]
-                and not s.get("closed") else None}
+                and not s.get("closed") else None,
+                # every instalment paid (still running): the list says so, and when it matures
+                "all_paid": bool(d["inv_type"] in ("rd", "gold", "chitty") and a["active"] and not s.get("closed")
+                                 and s.get("term_months") and s.get("paid_instalments", 0) >= s["term_months"])}
         if d["inv_type"] == "share":
             item["gain_pct"] = s.get("gain_pct")
         items.append(item)
@@ -532,7 +541,7 @@ def _clean_details(t, p, existing=None):
         "goal_profit": _paise(p.get("goal_profit"), "goal_profit"),
         "goal_date": _date_or_none(p.get("goal_date"), "goal_date"),
         "notes": (p.get("notes") or "").strip() or None,
-        "due_day": _int(p.get("due_day"), "due_day", 1, 31, "Due day") or None if t in ("rd", "gold", "chitty") else None,
+        "due_day": None,                             # set from the start date below (rd, gold scheme, chitty)
     }
     if t in HELD_AT and c["held_at_account_id"]:
         c["institution"] = None                     # the bank account says where it is
@@ -561,7 +570,7 @@ def _clean_details(t, p, existing=None):
         if not c["term_months"]:
             raise ApiError("Enter the tenure (years and months)", field="term_years")
         c["maturity_date"] = c["maturity_date"] or add_months(_d(c["start_date"]), c["term_months"]).isoformat()
-        c["due_day"] = c["due_day"] or _d(c["start_date"]).day
+        c["due_day"] = _d(c["start_date"]).day          # from the start date (no separate due day to enter)
         c["prepaid_instalments"] = _int(p.get("prepaid_instalments"), "prepaid_instalments", 0, 600,
                                         "Instalments already paid") or None
         if (c["prepaid_instalments"] or 0) > c["term_months"]:
@@ -577,7 +586,7 @@ def _clean_details(t, p, existing=None):
         if not c["term_months"]:
             raise ApiError("Enter the number of months", field="term_months")
         c["maturity_date"] = c["maturity_date"] or add_months(_d(c["start_date"]), c["term_months"]).isoformat()
-        c["due_day"] = c["due_day"] or _d(c["start_date"]).day
+        c["due_day"] = _d(c["start_date"]).day          # from the start date (no separate due day to enter)
         c["prepaid_instalments"] = _int(p.get("prepaid_instalments"), "prepaid_instalments", 0, 600,
                                         "Instalments already paid") or None
         if (c["prepaid_instalments"] or 0) > c["term_months"]:
@@ -666,7 +675,8 @@ def create(p):
     # FD bought now: record the payment from the bank
     if t == "fd" and paid_from and not opening:
         entries_svc.create({"type": "invest", "date": c["start_date"], "amount": str(to_rupees(c["amount"])),
-                            "from_account_id": paid_from, "to_account_id": acc_id, "note": f"New FD {name}"})
+                            "from_account_id": paid_from, "to_account_id": acc_id, "payment_mode_id": p.get("payment_mode_id"),
+                            "note": f"New FD {name}"})
     return get(acc_id)
 
 
@@ -838,6 +848,7 @@ def undo_close(account_id):
     conn = get_db()
     if d["close_entry_id"]:
         conn.execute("UPDATE metal_items SET sold_entry_id = NULL WHERE sold_entry_id = ?", (d["close_entry_id"],))
+        conn.execute("UPDATE investment_details SET close_entry_id = NULL WHERE account_id = ?", (account_id,))  # let it go
         if one("SELECT id FROM entries WHERE id = ?", (d["close_entry_id"],)):
             entries_svc.delete(d["close_entry_id"])
     conn.execute("UPDATE metal_items SET sold_date = NULL, sold_amount = NULL, sold_on_close = 0 "
@@ -1054,13 +1065,46 @@ def add_item(account_id, p):
         e = entries_svc.create({"type": "invest", "date": d, "amount": str(to_rupees(total)),
                                 "from_account_id": p["paid_from_account_id"], "to_account_id": acc["id"],
                                 "payment_mode_id": p.get("payment_mode_id"),
-                                "note": f"Bought {grams:g} g" + (f" ({text('bill_name', 80)})" if p.get("bill_name") else "")})
+                                "note": f"Bought {grams:g} g" + (f" ({text('bill_name', 80)})" if p.get("bill_name") else "")
+                                        + (f" · {text('note', 200)}" if p.get("note") else "")})
         entry_id = e["id"]
     get_db().execute("""INSERT INTO metal_items (account_id, date, description, grams, purity, total_paid, making_charges,
                         rate, entry_id, note, bill_name, doc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                      (acc["id"], d, desc, grams, purity, total, making, rate, entry_id, text("note", 300),
                       text("bill_name", 80), text("doc", 200)))
     get_db().commit()
+    return get(account_id)
+
+
+def weigh_payment(account_id, entry_id, p):
+    """Give a payment made into gold / silver its weight (or correct it). A payment added from Transactions before it
+    asked for grams has none; this records it as a purchase / instalment of that payment, without a second payment."""
+    acc = _metal_acc(account_id)
+    e = one("SELECT * FROM entries WHERE id = ? AND type = 'invest' AND to_account_id = ?", (entry_id, account_id))
+    if not e:
+        raise ApiError("That payment isn't for this investment", status=404)
+    item = one("SELECT * FROM metal_items WHERE entry_id = ?", (entry_id,))
+    try:
+        grams = float(p.get("grams"))
+        assert 0 < grams < 1e7
+    except (TypeError, ValueError, AssertionError):
+        raise ApiError("Enter the weight in grams", field="grams")
+    try:
+        purity = float(p.get("purity") or (item["purity"] if item else 99.9))
+        assert 1 <= purity <= 100
+    except (TypeError, ValueError, AssertionError):
+        raise ApiError("Purity must be a percent, e.g. 99.9", field="purity")
+    rate = _paise(p.get("rate"), "rate")
+    conn = get_db()
+    if item:
+        desc = f"{grams:g} g" if item["description"] == f"{item['grams']:g} g" else item["description"]   # keep a name you gave it
+        conn.execute("UPDATE metal_items SET grams = ?, purity = ?, rate = ?, total_paid = ?, date = ?, description = ? "
+                     "WHERE id = ?", (grams, purity, rate, e["amount"], e["date"], desc, item["id"]))
+    else:
+        conn.execute("""INSERT INTO metal_items (account_id, date, description, grams, purity, total_paid, making_charges,
+                        rate, entry_id, note) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)""",
+                     (acc["id"], e["date"], f"{grams:g} g", grams, purity, e["amount"], rate, entry_id, e["note"]))
+    conn.commit()
     return get(account_id)
 
 

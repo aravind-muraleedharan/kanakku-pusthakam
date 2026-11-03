@@ -6,7 +6,7 @@ from ..db import get_db, one, rows
 from ..errors import ApiError
 from ..money import to_paise, to_rupees
 
-ACCOUNT_KINDS = ("bank", "credit_card", "cash", "investment", "loan")
+ACCOUNT_KINDS = ("bank", "credit_card", "cash", "wallet", "investment", "loan")
 BANK_SUBTYPES = ("savings", "current", "salary", "other")
 OWED = ("credit_card", "loan")          # opening amount entered as "owed", stored as a negative balance
 INV_TYPES = ("share", "fd", "rd", "ppf", "gold", "silver", "chitty", "other")

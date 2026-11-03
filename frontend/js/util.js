@@ -27,9 +27,38 @@ const trim = (x) => (x >= 10 ? Math.round(x).toString() : x.toFixed(1).replace(/
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+/** A month chooser that reads "November 2026"; clicking it opens the browser's month calendar. */
+export function monthPicker(id, value, emptyLabel = "All months") {
+  return `<label class="mp" title="Choose a month">`
+    + `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`
+    + `<span class="mp-text">${esc(value ? monthLabel(value) : emptyLabel)}</span>`
+    + `<input type="month" id="${id}" value="${esc(value || "")}" aria-label="Month"></label>`;
+}
+
+/** Make a monthPicker open its calendar on click / Enter. Browsers without a month calendar show the plain field. */
+export function bindMonthPicker(input) {
+  if (!input) return;
+  if (input.type !== "month" || typeof input.showPicker !== "function") {
+    input.closest(".mp")?.classList.add("mp-native");
+    return;
+  }
+  const open = () => { try { input.showPicker(); } catch { input.focus(); } };
+  input.addEventListener("click", (e) => { e.preventDefault(); open(); });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+}
+
+let appSteps = 0;                                   // pages opened inside the app since it loaded
+export const notePageChange = () => { appSteps++; };
+
+/** Go back to the page you came from (keeping its month and filters); `fallback` if this page was opened directly. */
+export function goBack(fallback) {
+  if (appSteps > 0) history.back();
+  else location.hash = fallback;
+}
+
 /** The round ← button shown left of a page title. `to` is the page it goes back to. */
 export function backButton(href, to) {
-  return `<a class="back-btn" href="${href}" title="Back to ${esc(to)}" aria-label="Back to ${esc(to)}">`
+  return `<a class="back-btn" href="${href}" data-back title="Back to ${esc(to)}" aria-label="Back to ${esc(to)}">`
     + `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg></a>`;
 }
 
@@ -71,7 +100,7 @@ export function dayLabel(iso) {
 }
 
 export const TYPE_LABEL = { income: "Income", expense: "Expense", transfer: "Transfer", invest: "Invest", redeem: "Maturity" };   // stored as "redeem": money back from an investment
-export const KIND_LABEL = { bank: "Bank", credit_card: "Credit card", cash: "Cash", investment: "Investment", loan: "Loan" };
+export const KIND_LABEL = { bank: "Bank", credit_card: "Credit card", cash: "Cash", wallet: "Wallets & gift cards", investment: "Investment", loan: "Loan" };
 
 /** Escape text for safe use inside HTML templates. */
 export function esc(s) {

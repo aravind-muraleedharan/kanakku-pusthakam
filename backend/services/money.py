@@ -11,7 +11,7 @@ from . import loans as loan_svc
 from . import masters
 from .reports import balances
 
-GROUPS = ("bank", "credit_card", "cash")
+GROUPS = ("bank", "credit_card", "cash", "wallet")
 
 
 def next_day_of_month(day, today):
@@ -59,14 +59,15 @@ def overview(today=None):
     totals = {
         "bank": round(sum(x["balance"] for x in out["bank"]), 2),
         "cash": round(sum(x["balance"] for x in out["cash"]), 2),
+        "wallets": round(sum(x["balance"] for x in out["wallet"]), 2),
         "card_owed": round(sum(x["outstanding"] for x in out["credit_card"]), 2),
         "card_limit": round(sum(x["credit_limit"] or 0 for x in active(out["credit_card"])), 2),
         "investments": inv["totals"]["value"],
         "loans": lo["totals"]["outstanding"],
     }
-    totals["net_worth"] = round(totals["bank"] + totals["cash"] + totals["investments"]
+    totals["net_worth"] = round(totals["bank"] + totals["cash"] + totals["wallets"] + totals["investments"]
                                 - totals["card_owed"] - totals["loans"], 2)
     return {
-        "banks": out["bank"], "cards": out["credit_card"], "cash": out["cash"],
+        "banks": out["bank"], "cards": out["credit_card"], "cash": out["cash"], "wallets": out["wallet"],
         "totals": totals,
     }

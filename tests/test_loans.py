@@ -120,6 +120,21 @@ class LoansTest(unittest.TestCase):
         self.assertAlmostEqual(self.bal(acc)["outstanding"], g["summary"]["outstanding"], delta=0.01)
         self.assertLess(self.month()["totals"]["net_worth"], 98000)
 
+    def test_loan_payments_keep_their_payment_mode(self):
+        modes = {m["name"]: m["id"] for m in self.c.get("/api/masters").get_json()["payment_modes"]}
+        entry_modes = lambda: [e["payment_mode"] for e in self.c.get("/api/entries?month=").get_json()["items"] if "EMI" in (e["note"] or "")
+                               or "Prepayment" in (e["note"] or "")]
+        cc = self.new(name="Phone EMI", loan_type="cc_emi", account_id=self.card, category_id=self.gadgets,
+                      principal="30000", emi="10000", tenure_months=3, first_emi_date=T, start_date=T)
+        self.post(cc["id"], "emi")                                                      # charged to the card
+        self.assertEqual(entry_modes(), ["Credit Card"])
+        pl = self.new(name="Bank loan", loan_type="personal", bank_account_id=self.bank, principal="100000", emi="8885",
+                      tenure_months=12, first_emi_date=T, start_date=T)
+        self.post(pl["id"], "emi", payment_mode_id=modes["Net Banking"])               # principal + interest entries
+        self.post(pl["id"], "prepay", amount="10000", charges="100", payment_mode_id=modes["UPI"])
+        got = entry_modes()
+        self.assertEqual(sorted(got), sorted(["Credit Card", "Net Banking", "Net Banking", "UPI", "UPI"]), got)
+
     def test_running_loan_opening_balance(self):
         start = add_months(TODAY, -4)
         ln = self.new(name="Old loan", loan_type="personal", bank_account_id=self.bank, principal="120000",

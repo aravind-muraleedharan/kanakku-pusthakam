@@ -74,7 +74,7 @@ class ApiTest(unittest.TestCase):
         self.assertTrue({"bank", "credit_card", "cash"} <= kinds)
         self.assertIn("Vehicle", self.cat)
         self.assertIn("Investment Returns", self.cat)
-        self.assertEqual(len(self.mode), 7)          # 5 seeded + Reward Points, Other
+        self.assertEqual(len(self.mode), 8)          # 5 seeded + Reward Points, Other, Wallet / gift card
 
     def test_page_works_offline_only(self):
         csp = self.c.get("/").headers.get("Content-Security-Policy", "")
@@ -143,6 +143,45 @@ class ApiTest(unittest.TestCase):
         r = self.c.put(f"/api/entries/{e['id']}", json={**base, "payment_mode_id": self.mode["UPI"],
                                                         "payment_mode_other": "Amazon Pay"}).get_json()
         self.assertEqual((r["payment_mode"], r["payment_mode_other"]), ("UPI", None))
+
+    def test_income_never_keeps_a_payment_mode(self):
+        card_mode = self.mode.get("Credit Card") or next(iter(self.mode.values()))
+        e = self.ok(type="income", date="2026-11-02", amount="4944", category_id=self.cat["Other Income"],
+                    to_account_id=self.acc["Federal Bank"], payment_mode_id=card_mode)       # left over in the form
+        self.assertEqual((e["payment_mode_id"], e["payment_mode"]), (None, None))
+        # entries saved before the fix are cleaned by migration 022
+        with self.app.app_context():
+            from backend.db import get_db
+            conn = get_db()
+            conn.execute("UPDATE entries SET payment_mode_id = ? WHERE id = ?", (card_mode, e["id"]))
+            with open(os.path.join(ROOT, "backend", "migrations", "022_no_mode_on_income.sql")) as fh:
+                sql = fh.read()
+            conn.executescript(sql)
+            self.assertIsNone(conn.execute("SELECT payment_mode_id FROM entries WHERE id = ?", (e["id"],)).fetchone()[0])
+
+    def test_wallets_and_gift_cards(self):
+        w = self.new_account("Amazon Pay", "wallet", 500)
+        self.assertIn("Wallet / gift card", self.mode)
+        base = dict(date="2026-11-02")
+        self.ok(**base, type="income", amount="200", category_id=self.cat["Other Income"], to_account_id=w)      # cashback
+        self.ok(**base, type="transfer", amount="1000", from_account_id=self.acc["SBI"], to_account_id=w)        # top-up
+        self.ok(**base, type="expense", amount="450", category_id=self.cat["Vehicle"], from_account_id=w,
+                payment_mode_id=self.mode["Wallet / gift card"])                                                  # spent
+        bal = {b["id"]: b for b in self.c.get("/api/reports/dashboard?month=2026-11").get_json()["balances"]}
+        self.assertEqual(bal[w]["balance"], 1250)
+        ov = self.c.get("/api/reports/money").get_json()
+        self.assertEqual(([x["name"] for x in ov["wallets"]], ov["totals"]["wallets"]), (["Amazon Pay"], 1250))
+        d = self.c.get("/api/reports/dashboard?month=2026-11").get_json()["totals"]
+        self.assertEqual(d["wallets"], 1250)
+        self.assertNotIn(w, [x["id"] for x in ov["cash"]])
+        # not for investing, nor for money back from an investment
+        inv = self.new_account("Some RD", "investment")
+        self.assertEqual(self.post(**base, type="invest", amount="100", from_account_id=w, to_account_id=inv).status_code, 400)
+        # an account in use keeps its type (cash stays cash, a wallet stays a wallet)
+        cash = self.acc["Cash Wallet"]
+        self.ok(**base, type="expense", amount="10", category_id=self.cat["Vehicle"], from_account_id=cash)
+        self.assertEqual(self.c.put(f"/api/masters/accounts/{cash}", json={"kind": "wallet"}).status_code, 400)
+        self.assertEqual(self.c.put(f"/api/masters/accounts/{w}", json={"kind": "cash"}).status_code, 400)
 
     # ------------------------------------------------------- credit card logic
     def test_card_spend_counted_once(self):

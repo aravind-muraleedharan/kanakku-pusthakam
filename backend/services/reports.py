@@ -218,6 +218,7 @@ def dashboard(month):
     year_start, _ = month_bounds(shift_month(month, -11))
     bal = balances()
     cash_like = [b for b in bal if b["kind"] in ("bank", "cash")]
+    wallets = [b for b in bal if b["kind"] == "wallet"]
     cards = [b for b in bal if b["kind"] == "credit_card"]
     invest = [b for b in bal if b["kind"] == "investment"]
     from . import investments as inv_svc      # late import: investments imports entries
@@ -242,6 +243,7 @@ def dashboard(month):
         loans_out = round(sum(b["outstanding"] for b in bal if b["kind"] == "loan"), 2)
         loan_items = []
     bank_cash = round(sum(b["balance"] for b in cash_like), 2)
+    wallet_total = round(sum(b["balance"] for b in wallets), 2)
     owed = round(sum(b["outstanding"] for b in cards), 2)
     return {
         "month": month,
@@ -254,10 +256,11 @@ def dashboard(month):
         "loans": loan_items,
         "totals": {
             "bank_and_cash": bank_cash,
+            "wallets": wallet_total,
             "card_outstanding": owed,
             "invested_principal": round(sum(b["open_principal"] for b in invest), 2),
             "investments_value": inv_value,
             "loans_outstanding": loans_out,
-            "net_worth": round(bank_cash + inv_value - owed - loans_out, 2),
+            "net_worth": round(bank_cash + wallet_total + inv_value - owed - loans_out, 2),
         },
     }

@@ -114,6 +114,11 @@ def add_item(acc_id):
     return jsonify(svc.add_item(acc_id, _body())), 201
 
 
+@bp.put("/investments/<int:acc_id>/payments/<int:entry_id>/weight")
+def weigh_payment(acc_id, entry_id):
+    return jsonify(svc.weigh_payment(acc_id, entry_id, _body()))
+
+
 @bp.post("/investments/<int:acc_id>/items/<int:iid>/sell")
 def sell_item(acc_id, iid):
     return jsonify(svc.sell_item(acc_id, iid, _body())), 201

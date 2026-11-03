@@ -74,7 +74,30 @@ def seed_demo(app):
         _demo_investments(today, y0, m0, rd, bank, rnd)
         _demo_loans(today, bank, card, cat)
         _demo_budget(today)
+        _demo_wallet(today, bank, cat, mode)
         return True
+
+
+def _demo_wallet(today, bank, cat, mode):
+    """An Amazon Pay balance: a gift card received, a top-up, cashback, and purchases paid from it."""
+    y, m = _month_start(today, 2)
+    w = masters.create("accounts", {"name": "Amazon Pay", "kind": "wallet", "opening_balance": "0",
+                                    "opening_date": f"{y:04d}-{m:02d}-01"})["id"]
+    wallet_mode = mode.get("Wallet / gift card")
+    plan = [(2, 6, {"type": "income", "amount": "2000", "category_id": cat["Other Income"], "note": "Birthday gift card"}),
+            (1, 10, {"type": "transfer", "amount": "1000", "from_account_id": bank, "payment_mode_id": mode["UPI"], "note": "Top-up"}),
+            (1, 18, {"type": "expense", "amount": "799", "category_id": cat["Clothing & Accessories"], "note": "T-shirt"}),
+            (1, 20, {"type": "income", "amount": "150", "category_id": cat["Other Income"], "note": "Cashback"}),
+            (0, 1, {"type": "expense", "amount": "299", "category_id": cat["Entertainment & Subscriptions"], "note": "Prime renewal"})]
+    for back, day, e in plan:
+        yy, mm = _month_start(today, back)
+        d = min(day, today.day) if back == 0 else day
+        e = {**e, "date": f"{yy:04d}-{mm:02d}-{d:02d}"}
+        if e["type"] == "expense":
+            e.update(from_account_id=w, payment_mode_id=wallet_mode)
+        else:
+            e["to_account_id"] = w
+        entries.create(e)
 
 
 def _demo_budget(today):

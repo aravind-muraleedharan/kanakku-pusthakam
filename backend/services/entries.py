@@ -16,12 +16,15 @@ from ..money import to_paise, to_rupees
 
 TYPES = ("expense", "income", "transfer", "invest", "redeem")
 CASH_LIKE = ("bank", "credit_card", "cash")
+SPENDABLE = CASH_LIKE + ("wallet",)                  # wallets & gift cards: spent from, received into, topped up
 
 # For each type: which account kinds are allowed on each side (None = side must be empty)
+MODE_TYPES = ("expense", "transfer", "invest")       # the types that ask how you paid
+
 RULES = {
-    "expense":  {"from": CASH_LIKE + ("loan",),  "to": None,             "category": "expense"},   # loan: charges at disbursal
-    "income":   {"from": None,                  "to": CASH_LIKE,        "category": "income"},
-    "transfer": {"from": CASH_LIKE + ("investment", "loan"), "to": CASH_LIKE + ("loan",), "category": None},
+    "expense":  {"from": SPENDABLE + ("loan",),  "to": None,             "category": "expense"},   # loan: charges at disbursal
+    "income":   {"from": None,                  "to": SPENDABLE,        "category": "income"},
+    "transfer": {"from": SPENDABLE + ("investment", "loan"), "to": SPENDABLE + ("loan",), "category": None},
     # transfer from investment: share accounts only; from a loan (disbursal): to bank/cash; to a loan: repayment
     "invest":   {"from": CASH_LIKE,             "to": ("investment",),  "category": None},
     "redeem":   {"from": ("investment",),       "to": ("bank", "cash"), "category": "system"},
@@ -161,6 +164,8 @@ def validate(payload, entry_id=None):
         clean["principal_amount"] = principal
 
     # optional references
+    if t not in MODE_TYPES:                              # money coming in has no payment mode
+        clean["payment_mode_id"] = None
     if clean["payment_mode_id"]:
         pm = one("SELECT name FROM payment_modes WHERE id = ?", (clean["payment_mode_id"],))
         if not pm:
@@ -188,16 +193,34 @@ def create(payload):
     return get(cur.lastrowid)
 
 
+def _gold_links(entry_id):
+    """A gold / silver purchase paid by this entry, and items whose sale it records."""
+    bought = one("SELECT * FROM metal_items WHERE entry_id = ?", (entry_id,))
+    sold = rows("SELECT * FROM metal_items WHERE sold_entry_id = ?", (entry_id,))
+    return bought, sold
+
+
 def update(entry_id, payload):
-    if not one("SELECT id FROM entries WHERE id = ?", (entry_id,)):
+    old = one("SELECT * FROM entries WHERE id = ?", (entry_id,))
+    if not old:
         raise ApiError("Transaction not found", status=404)
     clean = validate(payload, entry_id=entry_id)
+    bought, sold = _gold_links(entry_id)
+    if (bought or sold) and (clean["type"] != old["type"] or clean["to_account_id"] != old["to_account_id"]
+                             or clean["from_account_id"] != old["from_account_id"] and sold):
+        raise ApiError("This payment belongs to a gold / silver record, so its type and investment can't change. "
+                       "Delete it and add it again instead.")
     conn = get_db()
     conn.execute(
         f"UPDATE entries SET {', '.join(c + ' = ?' for c in COLUMNS)}, "
         "updated_at = datetime('now','localtime') WHERE id = ?",
         [clean[c] for c in COLUMNS] + [entry_id],
     )
+    # keep the gold / silver record in step with its payment
+    if bought:
+        conn.execute("UPDATE metal_items SET total_paid = ?, date = ? WHERE id = ?", (clean["amount"], clean["date"], bought["id"]))
+    if len(sold) == 1:
+        conn.execute("UPDATE metal_items SET sold_amount = ?, sold_date = ? WHERE id = ?", (clean["amount"], clean["date"], sold[0]["id"]))
     conn.commit()
     return get(entry_id)
 
@@ -210,7 +233,19 @@ def delete(entry_id):
         # deleting an invest must not leave redeemed principal larger than what was put in
         if open_principal(entry["to_account_id"], exclude_entry_id=entry_id) < 0:
             raise ApiError("Money has already come back from this investment. Edit or delete that Maturity transaction first.")
+    closing = one("SELECT a.name FROM investment_details d JOIN accounts a ON a.id = d.account_id WHERE d.close_entry_id = ?",
+                  (entry_id,))
+    if closing:
+        raise ApiError(f"This is the closing of {closing['name']}. Use “Undo closing” on its page instead.")
+    bought, sold = _gold_links(entry_id)
+    if bought and bought["sold_date"]:
+        raise ApiError("The gold / silver bought with this payment has been sold. Delete that sale first.")
     conn = get_db()
+    if bought:                                           # the purchase goes with its payment
+        conn.execute("DELETE FROM metal_items WHERE id = ?", (bought["id"],))
+    if sold:                                             # deleting a sale: the items are held again
+        conn.execute("UPDATE metal_items SET sold_date = NULL, sold_amount = NULL, sold_entry_id = NULL, sold_on_close = 0 "
+                     "WHERE sold_entry_id = ?", (entry_id,))
     conn.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
     conn.commit()
 

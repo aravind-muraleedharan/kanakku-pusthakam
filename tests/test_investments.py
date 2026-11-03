@@ -150,6 +150,18 @@ class InvestmentsTest(unittest.TestCase):
         self.assertGreater(sm["value"], 2000)
         self.assertEqual(self.month_income(), 0)
 
+    def test_rd_all_instalments_paid_shows_in_the_list(self):
+        start = add_months(TODAY, -3)
+        done = self.new(name="Donation RD", inv_type="rd", amount="500", rate="6.25", start_date=start.isoformat(),
+                        term_months=3, prepaid_instalments=3)["account"]["id"]
+        running = self.new(name="Running RD", inv_type="rd", amount="1000", rate="6.25", start_date=start.isoformat(),
+                           term_months=12, prepaid_instalments=3)["account"]["id"]
+        items = {i["id"]: i for i in self.c.get("/api/investments").get_json()["items"]}
+        self.assertTrue(items[done]["all_paid"])
+        self.assertIsNone(items[done]["next_due"])
+        self.assertFalse(items[running]["all_paid"])
+        self.assertIsNotNone(items[running]["next_due"])
+
     # ------------------------------------------------------------------ PPF
     def test_ppf_year_limit(self):
         p = self.new(name="SBI PPF", inv_type="ppf", start_date="2020-04-01")
@@ -174,6 +186,47 @@ class InvestmentsTest(unittest.TestCase):
         g = self.act(gid, f"items/{item}/sell", amount="70000", date=TODAY.isoformat(), to_account_id=self.bank)
         self.assertEqual(g["summary"]["realised_gain"], 10000)
         self.assertEqual(self.month_income(), 10000)
+
+    def test_gold_payment_from_transactions_gets_its_weight(self):
+        gid = self.new(name="Gold", inv_type="gold")["account"]["id"]
+        t = TODAY.isoformat()
+        # a payment added from Transactions before it asked for grams: money only
+        e = self.c.post("/api/entries", json={"type": "invest", "date": t, "amount": "4000",
+                                              "from_account_id": self.bank, "to_account_id": gid}).get_json()
+        r = self.c.put(f"/api/investments/{gid}/payments/{e['id']}/weight", json={"grams": "0.544", "rate": "7350", "purity": "91.6"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        s = r.get_json()["summary"]
+        self.assertEqual((len(s["items"]), s["grams"], s["invested"]), (1, 0.544, 4000))
+        self.assertEqual(self.bank_balance(), -4000)                       # no second payment
+        # correcting it updates the same item
+        s = self.c.put(f"/api/investments/{gid}/payments/{e['id']}/weight", json={"grams": "0.55"}).get_json()["summary"]
+        self.assertEqual((len(s["items"]), s["grams"], s["items"][0]["purity"]), (1, 0.55, 91.6))
+        # editing the payment's amount keeps the item's cost in step
+        r = self.c.put(f"/api/entries/{e['id']}", json={"type": "invest", "date": t, "amount": "4100",
+                                                       "from_account_id": self.bank, "to_account_id": gid})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(self.c.get(f"/api/investments/{gid}").get_json()["summary"]["invested"], 4100)
+        # moving it to another investment is refused; a weight for another account's payment too
+        other = self.new(name="Gold 2", inv_type="gold")["account"]["id"]
+        self.assertEqual(self.c.put(f"/api/entries/{e['id']}", json={"type": "invest", "date": t, "amount": "4100",
+                                    "from_account_id": self.bank, "to_account_id": other}).status_code, 400)
+        self.assertEqual(self.c.put(f"/api/investments/{other}/payments/{e['id']}/weight", json={"grams": "1"}).status_code, 404)
+        self.assertEqual(self.c.put(f"/api/investments/{gid}/payments/{e['id']}/weight", json={"grams": "-1"}).status_code, 400)
+        # a sold item's payment can't be deleted; deleting the sale holds it again, then the payment goes with it
+        item = self.c.get(f"/api/investments/{gid}").get_json()["summary"]["items"][0]["id"]
+        self.act(gid, f"items/{item}/sell", amount="4500", date=t, to_account_id=self.bank)
+        self.assertEqual(self.c.delete(f"/api/entries/{e['id']}").status_code, 400)
+        sale = next(x["id"] for x in self.c.get("/api/entries?month=").get_json()["items"] if x["type"] == "redeem")
+        self.assertEqual(self.c.delete(f"/api/entries/{sale}").status_code, 200)
+        self.assertIsNone(self.c.get(f"/api/investments/{gid}").get_json()["summary"]["items"][0]["sold_date"])
+        self.assertEqual(self.c.delete(f"/api/entries/{e['id']}").status_code, 200)      # no database error
+        self.assertEqual(self.c.get(f"/api/investments/{gid}").get_json()["summary"]["items"], [])
+        # the closing transaction is removed with Undo closing, not from Transactions
+        rd = self.new(name="RD", inv_type="rd", amount="1000", rate="7", start_date=t, term_months=12)["account"]["id"]
+        self.c.post("/api/entries", json={"type": "invest", "date": t, "amount": "1000", "from_account_id": self.bank, "to_account_id": rd})
+        closed = self.act(rd, "close", amount="1000", date=t, to_account_id=self.bank)
+        cid = closed["details"]["close_entry_id"]
+        self.assertEqual(self.c.delete(f"/api/entries/{cid}").status_code, 400)
 
     # ------------------------------------------------------------------ overview
     def test_overview_and_net_worth(self):

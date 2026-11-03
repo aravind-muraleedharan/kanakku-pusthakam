@@ -383,6 +383,16 @@ def _paid_count(ln):
     return sum(1 for s in sched if s["kind"] == "emi" and s["status"] in ("before", "paid"))
 
 
+def _mode(ln, p):
+    """Payment mode for a loan payment: the one chosen, or Credit Card for a card EMI (it's charged to the card)."""
+    if p.get("payment_mode_id") not in (None, ""):
+        return p.get("payment_mode_id")
+    if ln["loan_type"] == "cc_emi":
+        r = one("SELECT id FROM payment_modes WHERE name = 'Credit Card'")
+        return r["id"] if r else None
+    return None
+
+
 def pay_emi(loan_id, p):
     """Record the next unpaid EMI (or the one given by `no`)."""
     ln = _active(loan_id)
@@ -400,21 +410,22 @@ def pay_emi(loan_id, p):
     principal = amount - interest
     d = _date(p.get("date"), "date", default=row["date"])
     label = f"EMI {row['no']}/{row['no'] + len(pending) - 1} · {ln['name']}"
+    pm = _mode(ln, p)
     ids = []
     if ln["loan_type"] == "cc_emi":
         ids.append(entries_svc.create({"type": "expense", "date": d, "amount": str(to_rupees(amount)),
                                        "category_id": ln["category_id"], "from_account_id": ln["account_id"],
-                                       "note": label})["id"])
+                                       "payment_mode_id": pm, "note": label})["id"])
     else:
         src = p.get("from_account_id") or ln["bank_account_id"]
         if principal:
             ids.append(entries_svc.create({"type": "transfer", "date": d, "amount": str(to_rupees(principal)),
                                            "from_account_id": src, "to_account_id": ln["account_id"],
-                                           "note": f"{label} (principal)"})["id"])
+                                           "payment_mode_id": pm, "note": f"{label} (principal)"})["id"])
         if interest:
             ids.append(entries_svc.create({"type": "expense", "date": d, "amount": str(to_rupees(interest)),
                                            "category_id": _interest_cat(), "from_account_id": src,
-                                           "note": f"{label} (interest)"})["id"])
+                                           "payment_mode_id": pm, "note": f"{label} (interest)"})["id"])
     get_db().execute("INSERT INTO loan_events (loan_id, date, kind, amount, principal, interest, installment_no, entry_ids) "
                      "VALUES (?, ?, 'emi', ?, ?, ?, ?, ?)",
                      (ln["id"], d, amount, principal, interest, row["no"] - 1, ",".join(map(str, ids))))
@@ -439,23 +450,24 @@ def prepay(loan_id, p, foreclose=False):
     mode = None if foreclose else (p.get("mode") if p.get("mode") in ("tenure", "emi") else "tenure")
     d = _date(p.get("date"), "date", default=date.today().isoformat())
     word = "Loan closed" if foreclose else "Prepayment"
+    pm = _mode(ln, p)
     ids = []
     if ln["loan_type"] == "cc_emi":
         if principal:
             ids.append(entries_svc.create({"type": "expense", "date": d, "amount": str(to_rupees(principal)),
                                            "category_id": ln["category_id"], "from_account_id": ln["account_id"],
-                                           "note": f"{word} · {ln['name']}"})["id"])
+                                           "payment_mode_id": pm, "note": f"{word} · {ln['name']}"})["id"])
         src_charges = ln["account_id"]
     else:
         src = p.get("from_account_id") or ln["bank_account_id"]
         if principal:
             ids.append(entries_svc.create({"type": "transfer", "date": d, "amount": str(to_rupees(principal)),
                                            "from_account_id": src, "to_account_id": ln["account_id"],
-                                           "note": f"{word} · {ln['name']}"})["id"])
+                                           "payment_mode_id": pm, "note": f"{word} · {ln['name']}"})["id"])
         src_charges = src
     if charges:
         ids.append(entries_svc.create({"type": "expense", "date": d, "amount": str(to_rupees(charges)),
-                                       "category_id": _interest_cat(), "from_account_id": src_charges,
+                                       "category_id": _interest_cat(), "from_account_id": src_charges, "payment_mode_id": pm,
                                        "note": f"{'Foreclosure' if foreclose else 'Prepayment'} charges · {ln['name']}"})["id"])
     conn = get_db()
     conn.execute("INSERT INTO loan_events (loan_id, date, kind, amount, principal, charges, mode, installment_no, entry_ids) "

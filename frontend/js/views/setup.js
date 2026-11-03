@@ -6,6 +6,7 @@ import { $, $$, dateLabel, esc, store, toast, todayISO } from "../util.js";
 const GROUPS = [
   { kind: "bank", title: "Bank accounts", label: "Balance", hint: "Balance as shown in your bank app or passbook.", add: "e.g. ICICI" },
   { kind: "cash", title: "Cash", label: "Cash in hand", hint: "Cash you are holding right now.", add: "e.g. Home cash box" },
+  { kind: "wallet", title: "Wallets & gift cards", label: "Balance", hint: "Amazon Pay balance, gift cards, vouchers: what's left to spend.", add: "e.g. Amazon Pay" },
   { kind: "credit_card", title: "Credit cards", label: "Outstanding", hint: "Total amount you currently owe on the card: billed but unpaid + unbilled spends.", add: "e.g. Amazon Pay ICICI Card" },
 ];
 
@@ -74,7 +75,7 @@ function group(g, accs) {
           </tr>`).join("") || `<tr><td class="small faint" style="border:0">None yet.</td></tr>`}</tbody>
       </table></div>
       <div class="add-row" data-kind="${g.kind}">
-        <input type="text" placeholder="Add ${g.kind === "cash" ? "a cash" : g.kind === "investment" ? "an investment" : g.kind === "bank" ? "a bank" : "a credit card"} account: ${esc(g.add)}" maxlength="80">
+        <input type="text" placeholder="Add ${g.kind === "cash" ? "a cash" : g.kind === "wallet" ? "a wallet or gift card" : g.kind === "investment" ? "an investment" : g.kind === "bank" ? "a bank" : "a credit card"} account: ${esc(g.add)}" maxlength="80">
         <button type="button" class="btn">Add</button>
       </div>
     </section>`;

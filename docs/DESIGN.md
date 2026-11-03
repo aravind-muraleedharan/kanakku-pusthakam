@@ -16,12 +16,16 @@ Scale: ~15 entries/day for 20 years ≈ 110,000 rows ≈ 10–20 MB. Indexes on 
 
 ## Core model
 
-Every entry moves money from and/or to an **account** (kinds: bank, credit_card, cash, investment).
+Every entry moves money from and/or to an **account** (kinds: bank, credit_card, cash, wallet, investment, loan).
+**Wallets & gift cards** (`wallet`, migration 023: Amazon Pay balance, gift cards, vouchers, reward points) work like
+cash: spent from (payment mode "Wallet / gift card"), received into, topped up by transfer; never used to invest or to
+receive a maturity. They have their own section on Accounts and their own line in net worth. Like every account
+in use, a wallet keeps its type.
 
 | Type | From → To | Counts in totals |
 | --- | --- | --- |
 | expense | bank / card / cash → outside | expense |
-| income | outside → bank / cash / card | income |
+| income | outside → bank / cash / wallet / card | income |
 | transfer | bank / card / cash → bank / card / cash | nothing (card bill payment, ATM withdrawal) |
 | invest | bank / card / cash → investment | "invested", shown separately |
 | redeem | investment → bank / cash | gain = amount − principal counts as income (Investment Returns); can be negative |

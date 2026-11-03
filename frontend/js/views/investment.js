@@ -3,7 +3,7 @@ import { api } from "../api.js";
 import { info } from "../help.js";
 import { masters, active, invalidateMasters } from "../state.js";
 import { $, $$, backButton, confirmDialog, dateLabel, esc, modal, money, options, toast, todayISO, TYPE_LABEL as ENTRY_LABEL } from "../util.js";
-import { gainCls, investmentForm, pct, typeChip } from "./investments.js";
+import { gainCls, investmentForm, linkModeToAccount, modeSelect, pct, typeChip } from "./investments.js";
 
 let inv, M, id;
 
@@ -274,10 +274,22 @@ function deposits(s, title, note = "") {
       ${note ? `<p class="small faint" style="margin:12px 0 0">${note}</p>` : ""}</div></section>`;
 }
 
+/** Gold / silver: payments into it that aren't tied to any purchase / instalment (no weight recorded). */
+function unweighed(s) {
+  const tied = new Set((s.items || []).flatMap((i) => [i.entry_id, i.sold_entry_id]).filter(Boolean));
+  return (s.flows || []).filter((f) => !tied.has(f.id) && !(f.id === inv.details.close_entry_id));
+}
+
 function metal(s) {
   const items = s.items || [];
   const own = !inv.type.builtin;               // gold tree etc. can have other purities
-  return `<section class="panel" style="margin-top:16px">
+  const missing = unweighed(s).filter((f) => f.type === "invest");
+  const warn = missing.length ? `<div class="callout warn" style="margin-top:16px">
+      <b>${missing.length} payment${missing.length === 1 ? " has" : "s have"} no weight recorded</b>, so ${missing.length === 1 ? "it isn't" : "they aren't"}
+      counted as ${missing.length === 1 ? (inv.summary.scheme ? "an instalment" : "a purchase") : inv.summary.scheme ? "instalments" : "purchases"} here:
+      ${missing.map((f) => `<div style="margin-top:6px">${esc(dateLabel(f.date))} · ${money(f.amount)}${f.note ? ` · ${esc(f.note)}` : ""}
+        · <a href="#/edit/${f.id}">Add its weight →</a></div>`).join("")}</div>` : "";
+  return warn + `<section class="panel" style="margin-top:16px">
     <div class="panel-head"><h2>${metalWords().many}</h2><span class="small faint">${items.length} ${inv.summary.scheme ? "payment" : "purchase"}${items.length === 1 ? "" : "s"}</span></div>
     <div class="panel-body" style="padding:14px 0 6px">${items.length ? `<div class="table-wrap"><table>
       <thead><tr><th>Date</th><th class="num">Weight</th>${own ? `<th class="num hide-sm">Purity</th>` : ""}<th class="num hide-sm">Buy Rate</th>
@@ -298,10 +310,12 @@ function metal(s) {
 }
 
 function flows(s) {
-  const list = s.flows || [];
+  // gold / silver: every payment and sale is already a row above, so only show money that isn't tied to one
+  const metalType = isMetal(inv.details.inv_type);
+  const list = metalType ? unweighed(s).filter((f) => f.type !== "invest") : s.flows || [];
   if (!list.length) return "";
   return `<section class="panel" style="margin-top:16px">
-    <div class="panel-head"><h2>Money in &amp; out</h2><a class="small" href="#/entries?account_id=${inv.account.id}">In Transactions →</a></div>
+    <div class="panel-head"><h2>${metalType ? "Other money in &amp; out" : "Money in &amp; out"}</h2><a class="small" href="#/entries?account_id=${inv.account.id}">In Transactions →</a></div>
     <div class="panel-body" style="padding:14px 0 6px"><div class="table-wrap"><table>
       <thead><tr><th>Date</th><th>Type</th><th>Account</th><th class="num">Amount</th></tr></thead>
       <tbody>${list.slice(0, 50).map((f) => {
@@ -358,9 +372,11 @@ function wire() {
     const rd = d.inv_type === "rd" || (d.inv_type === "chitty" && s.scheme);
     modal({
       title: rd ? "Pay instalment" : { share: "Add funds", ppf: "PPF deposit" }[d.inv_type] || "Add money",
-      body: dateFld() + amtFld("Amount (₹)", rd ? d.amount : "") + accFld("from_account_id", "Paid From", banks(true), firstBank) + noteFld(),
+      body: dateFld() + amtFld("Amount (₹)", rd ? d.amount : "") + accFld("from_account_id", "Paid From", banks(true), firstBank)
+        + fld("Payment mode", modeSelect(M, "payment_mode_id", firstBank)) + noteFld(),
       onSubmit: (v) => act(api.invPost(a.id, "funds", v), "Recorded"),
     });
+    linkModeToAccount($("#modal-root"), "from_account_id", "payment_mode_id", M);
   });
 
   on("[data-do=value]", () => modal({
@@ -514,12 +530,13 @@ function itemModal() {
       ${fld("*Weight (grams)", `<input name="grams" id="it-grams" inputmode="decimal" required>`, "As on the bill")}
       ${own ? fld("*Purity", `<select name="purity">${presets.map(([l, v], i) => `<option value="${v}" ${i === (metal === "gold" ? 2 : 0) ? "selected" : ""}>${l}</option>`).join("")}</select>`) : ""}
       ${fld("Bill Name", `<input name="bill_name" maxlength="80" placeholder="Name on the bill">`)}
-      <div class="${own ? "" : "full"}">${fld("*Payment Method", `<select name="paid_from_account_id">${options(payFrom, banks()[0]?.id)}</select>`,
-        "The account it was paid from")}</div>
+      ${fld("*Paid From", `<select name="paid_from_account_id">${options(payFrom, banks()[0]?.id)}</select>`, "The account it was paid from")}
+      ${fld("Payment mode", modeSelect(M, "payment_mode_id", banks()[0]?.id))}
       <div class="full">${fld("Transaction Document", `<input name="doc" maxlength="200" placeholder="e.g. bill / invoice no., UPI ref, or where the receipt is kept">`)}</div>
       <div class="full">${noteFld()}</div></div>`,
     onSubmit: (v) => act(api.invPost(a.id, "items", v), inv.summary.scheme ? "Instalment recorded" : "Purchase added"),
   });
+  linkModeToAccount($("#modal-root"), "paid_from_account_id", "payment_mode_id", M);
   // weight = amount ÷ rate, filled in until you type your own
   let typed = false;
   $("#it-grams").addEventListener("input", () => { typed = true; });

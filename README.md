@@ -34,15 +34,18 @@ Stop the app with **Ctrl+C** in the terminal.
   (UPI, card, cash…) picked from the account
 - **Credit cards done right:** a card swipe is the expense; paying the bill is a transfer, so nothing is counted twice.
   Accounts shows what you owe on each card, its limit, the next due date and the EMIs running on it
-- **Accounts:** your bank accounts, cards (limit, due date) and cash in one place; **net worth** on the Dashboard
+- **Accounts:** your bank accounts, cards (limit, due date), cash, and **wallets & gift cards** (Amazon Pay, vouchers,
+  reward points) in one place; **net worth** on the Dashboard
 - **Monthly Budget:** plan your income and expenses for up to three months, with a note per amount, payments
   ticked off as you make them, and whether your income covers your expenses
 - **Investments aren't spending:** money put in is tracked as principal; when it matures only the gain (or loss)
   counts as income. Built-in types with their own maths:
-  - **Fixed and recurring deposits:** interest, maturity value, instalment due dates; tenure in years + months + days
+  - **Fixed and recurring deposits:** interest, maturity value, instalments due on the start date's day; tenure in
+    years + months + days
   - **PPF:** yearly deposits with monthly lowest-balance interest
   - **Stocks:** a trading journal (CNC / MTF buy and sell, intraday, others), charges, dividends, a profit goal
-  - **Gold coins and silver bars:** each purchase with weight, rate and bill; **gold savings schemes** counted per month
+  - **Gold coins and silver bars:** each purchase with weight, rate and bill, also from Add transaction;
+    **gold savings schemes** counted per month
   - **Chit funds:** instalments paid and missed, the prize, closing
   - **Close** an investment (matured, broken early, sold) and the closing is recorded; **delete** removes it completely
 - **Loans & EMIs:** credit card EMIs and personal loans with the full schedule, interest worked out from the EMI,

@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.3.0 (2026-11-03)
+
+### New
+- **Wallets & gift cards:** Amazon Pay balance, gift cards, vouchers and reward points get their own section on
+  Accounts and their own line in net worth. Spend from them (payment mode "Wallet / gift card"), receive cashback or
+  a gift card into them, or top them up from your bank
+- **Gold and silver from Add transaction:** choosing a gold or silver investment under Invest asks for the rate and
+  weight (and purity for your own gold types), like the investment's own page. A payment that has no weight yet can
+  be given one from its Edit screen, without recording a second payment
+- **Payment mode** on the investment and loan payment forms (instalments, deposits, gold purchases, a new FD's
+  deposit, EMIs, prepayments); card EMIs are recorded as Credit Card
+- **Investments list:** "all instalments paid" once every instalment is paid, and "matured · close it" after the
+  maturity date
+- A maturity entered on Add transaction that brings back everything invested closes the investment, as its Close
+  button does ("Undo closing" reverses it)
+
+### Changed
+- An RD, gold savings scheme or chit fund's instalments are due on its **start date's day** each month; there is no
+  separate due day to enter
+- Gold and silver pages show one table (each purchase with what it cost) and a warning for any payment without a weight
+- FDs aren't offered under Invest (an FD gets its deposit when you add it); gold and silver aren't offered under
+  Maturity (they're sold or closed on their own page)
+- The month picker reads "November 2026" in full, with ‹ › joined to it
+- The Transactions totals show each figure in its own colour, with net in green or red
+- Dropdowns open when you release the mouse button
+
+### Fixed
+- An income or maturity could be saved with the payment mode of an earlier entry; existing ones are cleaned up
+- The back button, Cancel, Save and Delete return to the page you came from (e.g. the same month of Transactions)
+- In Chrome on Linux a long dropdown could pick an item by itself as it opened
+- A gold savings scheme counted this month's instalment as "due and not paid" before its due date
+- Deleting a gold or silver payment from Transactions failed; now its weight record goes with it (a sold one is refused)
+- Editing a gold payment's amount or date keeps its record in step
+
+### Upgrading
+`git pull`, then start the app as usual. Database changes are applied automatically, after a backup.
+If you kept a wallet or gift card as a Cash account, add it under Wallets & Gift Cards and make the old one inactive.
+
 ## 1.2.1 (2026-10-30)
 
 ### Fixed
