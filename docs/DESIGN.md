@@ -111,7 +111,9 @@ Actions: CNC Buy, CNC Sell, MTF Buy, MTF Sell, Intraday, Others (Others stores i
 e.g. F&O). Buys carry no profit. Migration 016 turned old Buy/Sell into CNC Buy/CNC Sell.
 Total profit = CNC sell + MTF sell + intraday + others − charges; gain % = total profit ÷ funds added.
 Dividends are paid into the bank, so they are listed on the account but never added to its profit or value;
-moving that money into the trading account is an ordinary Add funds.
+moving that money into the trading account is an ordinary Add funds. "+ Dividend" with **Paid into** also records the
+Income (category Dividends) in that bank, linked both ways (`share_dividends.entry_id`, migration 024, and the entry's
+`related_account_id`): editing the Income updates the dividend, deleting either removes both, and it stays an Income.
 Goal: % of funds added (or a forecast profit) by a date.
 Stocks accounts can't be redeemed, and only stocks accounts may be the "from" side of a transfer out of an investment.
 

@@ -114,8 +114,12 @@ export function donutChart(el, items, { centerLabel = "Total", centerValue, onCl
     }
     a0 = a1;
   });
-  s += `<text x="${C}" y="${C - 4}" text-anchor="middle" class="donut-label">${esc(centerLabel)}</text>
-        <text x="${C}" y="${C + 16}" text-anchor="middle" class="donut-value">${esc(centerValue ?? moneyShort(total))}</text>`;
+  // The centre shows a short total (₹2.9L); hovering it shows the exact amount.
+  const centerTip = `<b>${esc(centerLabel)}</b><br>${money(total)}`;
+  s += `<g class="donut-center" data-tip="${esc(centerTip)}">
+        <circle cx="${C}" cy="${C}" r="${r - 2}" fill="transparent"/>
+        <text x="${C}" y="${C - 4}" text-anchor="middle" class="donut-label">${esc(centerLabel)}</text>
+        <text x="${C}" y="${C + 16}" text-anchor="middle" class="donut-value">${esc(centerValue ?? moneyShort(total))}</text></g>`;
   el.innerHTML = `<div class="donut-wrap">
     <div class="chart donut"><svg viewBox="0 0 200 200" role="img" aria-label="${esc(label)}">${s}</svg></div>
     <div class="donut-legend">${list.map((i, idx) => `

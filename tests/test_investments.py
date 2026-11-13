@@ -96,6 +96,39 @@ class InvestmentsTest(unittest.TestCase):
         self.assertEqual(r.status_code, 400)
         self.act(sid, "redeem", status=400, amount="100", to_account_id=self.bank, date=t)
 
+    def test_dividend_recorded_as_income_into_the_bank(self):
+        t = TODAY.isoformat()
+        sid = self.new(name="Zerodha", inv_type="share")["account"]["id"]
+        g = self.act(sid, "dividends", date=t, stock="ITC", amount="640", to_account_id=self.bank)
+        d = g["dividends"][0]
+        self.assertEqual((d["amount"], d["paid_into"]), (640, "Test Bank"))
+        self.assertEqual((self.month_income(), self.bank_balance()), (640, 640))      # income, in the bank
+        self.assertEqual(g["summary"]["value"], 0)                                     # never in the stocks value
+        e = self.c.get(f"/api/entries/{d['entry_id']}").get_json()
+        self.assertEqual((e["type"], e["category"], e["to_account_id"]), ("income", "Dividends", self.bank))
+        # editing the Income keeps the dividend in step; it can't become another type
+        r = self.c.put(f"/api/entries/{e['id']}", json={**e, "amount": "650"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(self.c.get(f"/api/investments/{sid}").get_json()["dividends"][0]["amount"], 650)
+        self.assertEqual(self.c.put(f"/api/entries/{e['id']}", json={**e, "type": "transfer", "from_account_id": self.bank,
+                                                                    "to_account_id": sid}).status_code, 400)
+        # deleting the Income from Transactions removes the dividend; deleting a dividend removes its Income
+        self.assertEqual(self.c.delete(f"/api/entries/{e['id']}").status_code, 200)
+        self.assertEqual(self.c.get(f"/api/investments/{sid}").get_json()["dividends"], [])
+        g = self.act(sid, "dividends", date=t, stock="TCS", amount="100", to_account_id=self.bank)
+        r = self.c.delete(f"/api/investments/{sid}/dividends/{g['dividends'][0]['id']}")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual((self.month_income(), self.bank_balance()), (0, 0))
+        # "already recorded": only listed; a bad "paid into" is refused
+        g = self.act(sid, "dividends", date=t, stock="HDFC", amount="20")
+        self.assertIsNone(g["dividends"][0]["entry_id"])
+        self.assertEqual(self.month_income(), 0)
+        self.act(sid, "dividends", status=400, date=t, amount="20", to_account_id=sid)
+        # deleting the stocks account removes its dividends' Income too
+        self.act(sid, "dividends", date=t, stock="ITC", amount="300", to_account_id=self.bank)
+        self.assertEqual(self.c.delete(f"/api/investments/{sid}").status_code, 200)
+        self.assertEqual((self.month_income(), self.bank_balance()), (0, 0))
+
     def test_transfer_out_only_from_share_accounts(self):
         fd = self.new(name="SBI FD", inv_type="fd", amount="1000", rate="7", start_date="2025-01-01", term_months=12)
         r = self.c.post("/api/entries", json={"type": "transfer", "date": TODAY.isoformat(), "amount": "10",

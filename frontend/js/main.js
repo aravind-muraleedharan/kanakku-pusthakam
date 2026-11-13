@@ -15,6 +15,7 @@ import * as reports from "./views/reports.js";
 import * as settings from "./views/settings.js";
 import * as setup from "./views/setup.js";
 import { initTheme } from "./theme.js";
+import { initPicker } from "./picker.js";
 
 const routes = {
   dashboard: (p) => dashboard.render(p),
@@ -103,41 +104,8 @@ async function navigate(extra = {}) {
 
 initTheme();
 
-// Dropdowns keep the choice you made with the mouse. Once picked, the dropdown lets go of the keyboard, so typing
-// into the next field can't jump it to another option (browsers select options by first letter), and scrolling
-// the page over an open-and-closed dropdown never changes it.
-// Chrome on Linux can open a dropdown's list under the pointer while the button is still down; releasing it then
-// picks whatever item is under the pointer. So for mouse clicks the list opens on release (click) instead of on press.
-// Keyboard, touch and browsers that can't open a list from script keep their normal behaviour.
-const canOpenList = typeof HTMLSelectElement !== "undefined" && "showPicker" in HTMLSelectElement.prototype;
-let pressed = null;                                  // the dropdown the mouse button went down on
-document.addEventListener("mousedown", (e) => {
-  const sel = e.target.closest?.("select");
-  pressed = null;
-  if (!sel || !canOpenList || e.button !== 0 || sel.disabled) return;
-  e.preventDefault();                                // don't open on press
-  sel.focus();
-  pressed = sel;
-}, true);
-document.addEventListener("click", (e) => {
-  const sel = e.target.closest?.("select");
-  if (!sel || sel !== pressed) return;               // only a press + release on the box (not a pick in the list)
-  pressed = null;
-  try { sel.showPicker(); } catch { /* opens on the next click */ }
-}, true);
-document.addEventListener("pointerdown", (e) => {
-  const sel = e.target.closest?.("select");
-  if (sel) sel.dataset.picked = "1";
-}, true);
-document.addEventListener("change", (e) => {
-  const sel = e.target;
-  if (sel.tagName === "SELECT" && sel.dataset.picked) { delete sel.dataset.picked; sel.blur(); }
-}, true);
-document.addEventListener("focusout", (e) => { if (e.target.tagName === "SELECT") delete e.target.dataset.picked; }, true);
-document.addEventListener("wheel", (e) => {
-  const sel = e.target.closest?.("select");
-  if (sel && document.activeElement === sel) e.preventDefault();
-}, { capture: true, passive: false });
+// Dropdowns: a mouse click opens the app's own list (see picker.js), the wheel never changes a focused dropdown.
+initPicker();
 
 // The browser must not remember what you type (amounts, notes, stock names...) and offer it again later.
 // Fields that say what they are (email, passwords, the login code) keep their own autocomplete setting.

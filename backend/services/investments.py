@@ -890,8 +890,9 @@ def get(account_id):
                           for r in rows("SELECT * FROM share_actions WHERE account_id = ? ORDER BY date DESC, id DESC",
                                         (account_id,))]
         out["dividends"] = [{**r, "amount": to_rupees(r["amount"])}
-                            for r in rows("SELECT * FROM share_dividends WHERE account_id = ? ORDER BY date DESC, id DESC",
-                                          (account_id,))]
+                            for r in rows("""SELECT d.*, a.name AS paid_into FROM share_dividends d
+                                             LEFT JOIN entries e ON e.id = d.entry_id LEFT JOIN accounts a ON a.id = e.to_account_id
+                                             WHERE d.account_id = ? ORDER BY d.date DESC, d.id DESC""", (account_id,))]
     return out
 
 
@@ -1012,19 +1013,40 @@ def delete_action(account_id, action_id):
 
 
 def add_dividend(account_id, p):
-    _share_acc(account_id)
+    """A dividend paid by a share in this account. It's paid into your bank: with "paid into" given, that Income is
+    recorded too (category Dividends, linked to this account); the stocks account's value never includes it."""
+    acc = _share_acc(account_id)
     amount = _paise(p.get("amount"), "amount", required=True)
     if amount <= 0:
         raise ApiError("Amount must be more than zero", field="amount")
-    get_db().execute("INSERT INTO share_dividends (account_id, date, stock, amount, note) VALUES (?, ?, ?, ?, ?)",
-                     (account_id, _date_or_none(p.get("date"), "date") or date.today().isoformat(),
-                      (p.get("stock") or "").strip()[:100] or None, amount, (p.get("note") or "").strip() or None))
+    when = _date_or_none(p.get("date"), "date") or date.today().isoformat()
+    stock = (p.get("stock") or "").strip()[:100] or None
+    note = (p.get("note") or "").strip()[:300] or None
+    entry_id = None
+    if p.get("to_account_id") not in (None, ""):
+        to = one("SELECT * FROM accounts WHERE id = ?", (p.get("to_account_id"),))
+        if not to or to["kind"] not in ("bank", "cash"):
+            raise ApiError("Choose the bank it was paid into", field="to_account_id")
+        cat = one("SELECT id FROM categories WHERE name = 'Dividends' AND kind = 'income'")
+        e = entries_svc.create({"type": "income", "date": when, "amount": str(to_rupees(amount)),
+                                "category_id": cat["id"] if cat else None, "to_account_id": to["id"],
+                                "note": " · ".join(x for x in ("Dividend", stock, note) if x)})
+        entry_id = e["id"]
+        get_db().execute("UPDATE entries SET related_account_id = ? WHERE id = ?", (acc["id"], entry_id))
+    get_db().execute("INSERT INTO share_dividends (account_id, date, stock, amount, note, entry_id) VALUES (?, ?, ?, ?, ?, ?)",
+                     (account_id, when, stock, amount, note, entry_id))
     get_db().commit()
     return get(account_id)
 
 
 def delete_dividend(account_id, div_id):
-    get_db().execute("DELETE FROM share_dividends WHERE id = ? AND account_id = ?", (div_id, account_id))
+    """Remove a dividend, and the Income it recorded."""
+    row = one("SELECT * FROM share_dividends WHERE id = ? AND account_id = ?", (div_id, account_id))
+    if not row:
+        raise ApiError("Dividend not found", status=404)
+    get_db().execute("DELETE FROM share_dividends WHERE id = ?", (div_id,))
+    if row["entry_id"] and one("SELECT id FROM entries WHERE id = ?", (row["entry_id"],)):
+        get_db().execute("DELETE FROM entries WHERE id = ?", (row["entry_id"],))
     get_db().commit()
     return get(account_id)
 

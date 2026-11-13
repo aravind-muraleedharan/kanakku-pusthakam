@@ -125,8 +125,10 @@ function accountOptions(side) {
   const groups = {};
   list.forEach((a) => (groups[a.kind] ||= []).push(a));
   const sel = v[side + "_account_id"];
-  return `<option value="">Choose…</option>` + Object.entries(groups).map(([kind, accs]) =>
-    `<optgroup label="${esc(KIND_LABEL[kind])}">${options(accs, sel)}</optgroup>`).join("");
+  // a fixed order, short groups first, so Cash and wallets are in view without scrolling past every bank and card
+  const ORDER = ["bank", "cash", "wallet", "credit_card", "investment", "loan"];
+  return `<option value="">Choose…</option>` + ORDER.filter((k) => groups[k]).map((kind) =>
+    `<optgroup label="${esc(KIND_LABEL[kind])}">${options(groups[kind], sel)}</optgroup>`).join("");
 }
 
 function categoryList() {

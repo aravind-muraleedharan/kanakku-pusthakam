@@ -205,6 +205,10 @@ def update(entry_id, payload):
     if not old:
         raise ApiError("Transaction not found", status=404)
     clean = validate(payload, entry_id=entry_id)
+    dividend = one("SELECT id FROM share_dividends WHERE entry_id = ?", (entry_id,))
+    if dividend and clean["type"] != "income":
+        raise ApiError("This is a dividend's Income, so it stays an Income. Delete the dividend on the stocks page instead.",
+                       field="type")
     bought, sold = _gold_links(entry_id)
     if (bought or sold) and (clean["type"] != old["type"] or clean["to_account_id"] != old["to_account_id"]
                              or clean["from_account_id"] != old["from_account_id"] and sold):
@@ -216,6 +220,8 @@ def update(entry_id, payload):
         "updated_at = datetime('now','localtime') WHERE id = ?",
         [clean[c] for c in COLUMNS] + [entry_id],
     )
+    if dividend:                                         # the stocks page's dividend follows its Income
+        conn.execute("UPDATE share_dividends SET amount = ?, date = ? WHERE id = ?", (clean["amount"], clean["date"], dividend["id"]))
     # keep the gold / silver record in step with its payment
     if bought:
         conn.execute("UPDATE metal_items SET total_paid = ?, date = ? WHERE id = ?", (clean["amount"], clean["date"], bought["id"]))
@@ -241,6 +247,7 @@ def delete(entry_id):
     if bought and bought["sold_date"]:
         raise ApiError("The gold / silver bought with this payment has been sold. Delete that sale first.")
     conn = get_db()
+    conn.execute("DELETE FROM share_dividends WHERE entry_id = ?", (entry_id,))   # a dividend goes with its Income
     if bought:                                           # the purchase goes with its payment
         conn.execute("DELETE FROM metal_items WHERE id = ?", (bought["id"],))
     if sold:                                             # deleting a sale: the items are held again

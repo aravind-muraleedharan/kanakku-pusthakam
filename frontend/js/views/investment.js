@@ -204,10 +204,10 @@ const SECTIONS = {
         <section class="panel">
           <div class="panel-head"><h2>Dividends</h2>${divs.length ? `<span class="small faint">${money(s.dividends)} in total</span>` : ""}</div>
           <div class="panel-body">${divs.length ? divs.map((r) => `<div class="bal-row">
-            <span><span class="cell-main">${esc(r.stock || "Dividend")}</span><div class="cell-sub">${esc(dateLabel(r.date))}${r.note ? ` · ${esc(r.note)}` : ""}</div></span>
+            <span><span class="cell-main">${esc(r.stock || "Dividend")}</span><div class="cell-sub">${esc(dateLabel(r.date))}${r.paid_into ? ` · into ${esc(r.paid_into)}` : ""}${r.note ? ` · ${esc(r.note)}` : ""}</div></span>
             <span class="amt">${money(r.amount)} <button class="btn btn-ghost btn-sm btn-danger" data-del-div="${r.id}" aria-label="Delete">✕</button></span></div>`).join("")
             : `<p class="small faint" style="margin:0">None yet.</p>`}
-            <p class="small faint" style="margin:12px 0 0">Dividends go to your bank, so they're kept out of this account's value and profit. When you move the money in, add it with Add funds.</p></div>
+            <p class="small faint" style="margin:12px 0 0">Dividends are paid into your bank: each is recorded there as Income, and kept out of this account's value and profit. Moving the money into this account later is an Add funds.</p></div>
         </section>
       </div>
     </div>`;
@@ -421,14 +421,21 @@ function wire() {
       act(api.invDelete(a.id, `actions/${b.dataset.delAction}`), "Deleted");
     }
   });
-  on("[data-do=dividend]", () => modal({
-    title: "Dividend",
-    body: dateFld() + fld("Stock", `<input name="stock" maxlength="100">`) + amtFld() + noteFld()
-      + `<p class="small faint" style="margin:0">Counted in this account's profit, not as income.</p>`,
-    onSubmit: (v) => act(api.invPost(a.id, "dividends", v), "Dividend added"),
-  }));
+  on("[data-do=dividend]", () => {
+    const into = [...banks().map((b) => ({ id: b.id, name: b.name })), { id: "", name: "Already recorded in Transactions (don't add it again)" }];
+    modal({
+      title: "Dividend",
+      body: dateFld() + fld("Stock", `<input name="stock" maxlength="100" placeholder="e.g. ITC">`) + amtFld()
+        + fld("*Paid Into", `<select name="to_account_id">${options(into, banks()[0]?.id)}</select>`, "The bank it was credited to")
+        + noteFld()
+        + `<p class="small faint" style="margin:0">Recorded as Income (Dividends) in that bank. It isn't part of this stocks account's value.</p>`,
+      onSubmit: (v) => act(api.invPost(a.id, "dividends", v), v.to_account_id ? "Dividend recorded as income" : "Dividend added"),
+    });
+  });
   on("[data-del-div]", async (b) => {
-    if (await confirmDialog("Delete this dividend?", "It will be removed.")) act(api.invDelete(a.id, `dividends/${b.dataset.delDiv}`), "Deleted");
+    const r = (inv.dividends || []).find((x) => String(x.id) === b.dataset.delDiv);
+    if (await confirmDialog("Delete this dividend?", r?.entry_id ? "It's removed here, and its Income in your bank is removed too." : "It will be removed."))
+      act(api.invDelete(a.id, `dividends/${b.dataset.delDiv}`), "Deleted");
   });
 
   // gold / silver

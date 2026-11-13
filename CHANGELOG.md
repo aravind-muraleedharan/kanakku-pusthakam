@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.1 (2026-11-13)
+
+### New
+- **Dividends into your bank:** "+ Dividend" can record the Income in the bank it was paid into (category
+  Dividends), linked to the dividend: editing the Income updates the dividend, and deleting either removes both
+- Hovering the total in the middle of a pie chart shows the exact amount
+
+### Changed
+- Clicking a dropdown opens the app's own list: every option, grouped, scrollable, with a search box for long lists
+- Add transaction lists accounts in a fixed order: Bank, Cash, Wallets & gift cards, Credit card
+
+### Fixed
+- In Chrome on Linux a dropdown could open cut short, hiding the last items, or pick an item when the mouse button
+  was released
+
 ## 1.3.0 (2026-11-03)
 
 ### New
