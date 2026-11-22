@@ -146,6 +146,48 @@ class LoansTest(unittest.TestCase):
         self.assertEqual(self.bal(self.bank)["balance"], 0)                      # nothing received now
         self.assertEqual(s["due_count"], 1)                                       # this month's EMI is due
 
+    def test_deleting_an_emi_entry_removes_the_whole_emi(self):
+        ln = self.new(name="HDFC Personal Loan", loan_type="personal", bank_account_id=self.bank,
+                      principal="100000", emi="8885", tenure_months=12, first_emi_date=T, start_date=T)
+        g = self.post(ln["id"], "emi", date=T)
+        paid = next(r for r in g["summary"]["schedule"] if r["kind"] == "emi" and r["status"] == "paid")
+        ids = [e["id"] for e in self.c.get("/api/entries?month=").get_json()["items"] if "EMI" in (e["note"] or "")]
+        self.assertEqual(len(ids), 2)                                               # principal + interest
+        e = self.c.get(f"/api/entries/{ids[0]}").get_json()
+        self.assertEqual((e["loan_payment"]["kind"], e["loan_payment"]["entries"]), ("emi", 2))
+        self.assertEqual(self.c.delete(f"/api/entries/{ids[0]}").status_code, 200)
+        left = [x for x in self.c.get("/api/entries?month=").get_json()["items"] if "EMI" in (x["note"] or "")]
+        self.assertEqual(left, [])                                                  # both entries gone
+        row = next(r for r in self.c.get(f"/api/loans/{ln['id']}").get_json()["summary"]["schedule"] if r.get("no") == paid["no"])
+        self.assertNotEqual(row["status"], "paid")                                  # and it's unpaid again
+        # the loan reaching the bank can't be deleted on its own
+        disb = next(x for x in self.c.get("/api/entries?month=").get_json()["items"] if x["type"] == "transfer")
+        self.assertEqual(self.c.delete(f"/api/entries/{disb['id']}").status_code, 400)
+
+    def test_own_loan_types(self):
+        r = self.c.post("/api/loans/types", json={"name": "Home loan", "works_like": "personal"})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        home = r.get_json()["id"]
+        for bad in ({"name": "home LOAN", "works_like": "personal"}, {"name": "Personal loan", "works_like": "personal"},
+                    {"name": "", "works_like": "personal"}, {"name": "Car", "works_like": "other"}):
+            self.assertEqual(self.c.post("/api/loans/types", json=bad).status_code, 400, bad)
+        # a loan of your own type is counted like the kind it works like, and shows your type's name
+        ln = self.new(name="SBI Home Loan", loan_type="cc_emi", type_id=home, bank_account_id=self.bank,
+                      principal="100000", emi="10000", tenure_months=12, first_emi_date=T, start_date=T)
+        self.assertEqual((ln["loan_type"], ln["type_id"], ln["type_label"]), ("personal", home, "Home loan"))
+        self.assertEqual(self.c.get("/api/loans").get_json()["items"][0]["type_label"], "Home loan")
+        # in use: can be renamed, not deleted
+        self.assertEqual(self.c.delete(f"/api/loans/types/{home}").status_code, 400)
+        self.assertEqual(self.c.put(f"/api/loans/types/{home}", json={"name": "Housing loan"}).status_code, 200)
+        self.assertEqual(self.c.get(f"/api/loans/{ln['id']}").get_json()["type_label"], "Housing loan")
+        # editing the loan keeps its type
+        self.assertEqual(self.c.put(f"/api/loans/{ln['id']}", json={"notes": "x", "type_id": None}).get_json()["type_id"], home)
+        t = self.c.get("/api/loans/types").get_json()
+        self.assertEqual((t[0]["name"], t[0]["used"]), ("Housing loan", 1))
+        # unused: can be deleted
+        car = self.c.post("/api/loans/types", json={"name": "Car loan", "works_like": "personal"}).get_json()["id"]
+        self.assertEqual(self.c.delete(f"/api/loans/types/{car}").status_code, 200)
+
     def test_validation_and_delete(self):
         r = self.c.post("/api/loans", json={"name": "x", "loan_type": "personal", "bank_account_id": self.bank,
                                             "principal": "100000", "emi": "1000", "tenure_months": 12, "first_emi_date": T})

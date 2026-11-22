@@ -70,6 +70,19 @@ def payment_modes():
 
 
 
+@bp.get("/reports/export.xlsx")
+def export_xlsx():
+    """Every report for the chosen period as one styled Excel workbook."""
+    from flask import Response
+    from ..services import reports_xlsx
+    dfrom, dto = _range()
+    data, name = reports_xlsx.build(dfrom, dto, (request.args.get("label") or "")[:40])
+    if data is None:
+        raise ApiError("Nothing to export: there are no transactions in this period", 404)
+    return Response(data, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
 @bp.get("/reports/balances")
 def balances():
     return jsonify(svc.balances(request.args.get("as_of") or None))

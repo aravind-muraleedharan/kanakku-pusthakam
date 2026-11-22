@@ -156,6 +156,10 @@ def validate(payload, entry_id=None):
         if principal is None or principal < 0:
             raise ApiError("Enter the principal being closed (0 if none)", field="principal_amount")
         available = open_principal(clean["from_account_id"], exclude_entry_id=entry_id)
+        # chit fund (kuri): the amount you get can be more than you've paid so far - the rest you pay back as
+        # instalments - so up to the amount received may be taken as principal (no income until the chit ends)
+        if inv_type(clean["from_account_id"]) == "chitty":
+            available = max(available, amount)
         if principal > available:
             raise ApiError(
                 f"Principal is more than what is invested in this account (₹{to_rupees(available):,.2f})",

@@ -2,8 +2,8 @@
 import { api } from "../api.js";
 import { info } from "../help.js";
 import { masters, active, invalidateMasters } from "../state.js";
-import { $, $$, backButton, confirmDialog, dateLabel, esc, modal, money, options, toast, todayISO, TYPE_LABEL as ENTRY_LABEL } from "../util.js";
-import { gainCls, investmentForm, linkModeToAccount, modeSelect, pct, typeChip } from "./investments.js";
+import { $, $$, backButton, confirmDialog, dateLabel, esc, modal, metaItem, money, options, toast, todayISO, TYPE_LABEL as ENTRY_LABEL } from "../util.js";
+import { gainCls, gainPill, investmentForm, linkModeToAccount, modeSelect, pct, typeChip } from "./investments.js";
 
 let inv, M, id;
 
@@ -31,18 +31,19 @@ function draw() {
     <div class="page-head">
       <div class="title-row">${backButton("#/investments", "Investments")}<div>
         <h1>${esc(a.name)}</h1>
-        <div class="sub muted small" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${typeChip(inv.type.name, inv.type.color)}
-          ${d.held_at || d.institution ? `<span>${esc(d.held_at || d.institution)}</span>` : ""}
-          ${since ? `<span>· since ${esc(dateLabel(since))}</span>` : ""}
+        <div class="sub title-meta">${typeChip(inv.type.name, inv.type.color)}
+          ${d.held_at || d.institution ? metaItem("bank", d.held_at || d.institution, "Held at") : ""}
+          ${since ? metaItem("date", `Since ${dateLabel(since)}`) : ""}
           ${s.closed || !a.active ? `<span class="status-pill off">Closed</span>` : ""}</div>
       </div></div>
-      <div class="toolbar">${a.active ? buttons(t, s) : ""}<button class="btn" data-do="edit">Edit</button>
+      <div class="toolbar"><button class="btn" data-do="edit">Edit</button>
         ${a.active ? (s.closed ? "" : `<button class="btn" data-do="close">Close</button>`)
           : `<button class="btn" data-do="reopen">${d.closed_on ? "Undo closing" : "Reopen"}</button>`}
         <button class="btn btn-ghost btn-danger" data-do="delete">Delete</button>${info("close_delete")}</div>
     </div>
     ${closedNote(d, a)}
     <div class="grid grid-4">${kpis(t, s, d)}</div>
+    ${t === "share" ? "" : recordBar(t, s)}
     ${(SECTIONS[t] || SECTIONS.other)(s, d)}
     ${extras(d)}
     ${flows(s)}
@@ -74,20 +75,24 @@ function metalWords() {
 
 function kpis(t, s, d) {
   if (t === "share") {
-    return kpi("Net invested", money(s.net_invested), `added ${money(s.funds_added)} · withdrawn ${money(s.withdrawn)}`, "var(--invest)")
-      + kpi("Total profit", signed(s.total_profit), s.gain_pct === null ? "—" : `${pct(s.gain_pct)} of funds added`, "var(--income)")
+    return kpi("Net invested", money(s.net_invested), `added ${money(s.funds_added)} | withdrawn ${money(s.withdrawn)}`, "var(--invest)")
+      + kpi("Total profit", signed(s.total_profit), s.gain_pct === null ? "—" : `${gainPill(s.gain_pct)} of funds added`, "var(--income)")
       + kpi("Current value", money(s.value), "net invested + profit")
-      + kpi("Dividends", money(s.dividends), "paid to your bank · not in value", "var(--redeem)");
+      + kpi("Dividends", money(s.dividends), "paid to your bank | not in value", "var(--redeem)");
   }
   if (t === "fd") {
-    return kpi("Deposit", money(s.principal), d.rate ? `${d.rate}%${d.term_months || d.term_days ? ` · ${tenureLabel(d.term_months, d.term_days)}` : ""}` : "", "var(--invest)")
-      + kpi(s.closed ? "Value" : "Value today", money(s.value), s.payout === "maturity" ? "interest added quarterly" : "interest paid out")
+    return kpi("Deposit", money(s.principal), d.rate ? `${d.rate}%${d.term_months || d.term_days ? ` | ${tenureLabel(d.term_months, d.term_days)}` : ""}` : "", "var(--invest)")
+      + kpi(s.closed ? "Value" : "Value today", money(s.value), s.payout === "maturity" ? "deposit + interest" : "interest goes to your bank")
       + kpi("At maturity", money(s.maturity_amount), d.maturity_date ? dateLabel(d.maturity_date) : "", "var(--income)")
-      + kpi("Interest received", money(s.interest_received), s.payout === "maturity" ? "on closing" : `${s.payouts_recorded.length} payout(s) recorded`, "var(--redeem)");
+      // a running cumulative FD pays nothing until it closes: show the interest built up so far instead
+      + (s.payout === "maturity" && !s.closed
+        ? kpi("Interest so far", money(Math.max(0, s.value - s.principal)), "cumulative | paid at maturity", "var(--redeem)")
+        : kpi("Interest received", money(s.interest_received), s.payout === "maturity" ? "on closing"
+          : `${{ monthly: "Monthly", quarterly: "Quarterly", yearly: "Yearly" }[s.payout] || "Paid out"} | ${s.payouts_recorded.length} recorded`, "var(--redeem)"));
   }
   if (t === "rd") {
     const missed = s.missed_instalments;
-    return kpi("Instalment", money(s.instalment), d.rate ? `${d.rate}% · ${tenureLabel(d.term_months)}` : "", "var(--invest)")
+    return kpi("Instalment", money(s.instalment), d.rate ? `${d.rate}% | ${tenureLabel(d.term_months)}` : "", "var(--invest)")
       + kpi("Paid", `${s.paid_instalments ?? 0}<span class="faint" style="font-size:16px"> / ${s.term_months ?? 0}</span>`,
             missed ? `<span style="color:var(--warn)">${missed} due and not recorded</span>`
               : s.next_due ? `next due <b>${esc(dateLabel(s.next_due))}</b>` : "all instalments paid", missed ? "var(--warn)" : "var(--income)")
@@ -107,12 +112,12 @@ function kpis(t, s, d) {
     return kpi("Instalments", `${s.paid_instalments}<span class="faint" style="font-size:16px"> / ${s.term_months}</span>`,
         missed ? `<span style="color:var(--warn)">${missed} due and not paid</span>`
           : s.next_due ? `next due <b>${esc(dateLabel(s.next_due))}</b>` : "all paid", missed ? "var(--warn)" : "var(--income)")
-      + kpi("Gold collected", `${s.grams} g`, s.paid_before && !s.grams_before ? "add the grams paid before: Edit" : `${s.pure_grams} g pure`, "var(--invest)")
+      + kpi("Gold collected", `${s.grams} g`, s.paid_before && !s.grams_before ? "add the grams paid before: Edit" : "", "var(--invest)")
       + kpi("Paid", money(s.invested), s.paid_before ? `incl. ${money(s.paid_before)} paid before` : `${money(s.instalment)} a month`)
       + kpi("Matures", d.maturity_date ? esc(dateLabel(d.maturity_date)) : "—", "get the jewellery", "var(--redeem)");
   }
   if (isMetal(t)) {
-    return kpi("Weight", `${s.grams} g`, `${s.pure_grams} g pure`, "var(--invest)")
+    return kpi("Weight", `${s.grams} g`, "", "var(--invest)")
       + kpi("Paid", money(s.invested), s.making_charges ? `incl. ${money(s.making_charges)} premium & GST` : "total paid")
       + kpi("Holding", String(s.items.filter((i) => !i.sold_date).length), `${metalWords().many.toLowerCase()}, shown at cost`, "var(--income)")
       + kpi("Gain on sales", signed(s.realised_gain), "counted when you sell", "var(--redeem)");
@@ -122,34 +127,46 @@ function kpis(t, s, d) {
     return kpi("Instalments", `${s.paid_instalments}<span class="faint" style="font-size:16px"> / ${s.term_months}</span>`,
         missed ? `<span style="color:var(--warn)">${missed} due and not recorded</span>`
           : s.next_due ? `next due <b>${esc(dateLabel(s.next_due))}</b>` : "all paid", missed ? "var(--warn)" : "var(--income)")
-      + kpi("Paid in", money(s.invested), `${money(s.instalment)} a month`, "var(--invest)")
-      + kpi("Prize / gain", signed(s.realised_gain), "counted when you receive the prize", "var(--income)")
+      + kpi("Paid in", money(s.paid_in ?? s.invested), `${money(s.instalment)} a month`, "var(--invest)")
+      + (s.kuri && !s.closed
+        ? kpi("Amount received", money(s.kuri.amount), s.to_pay ? `<span class="c-expense">${money(s.to_pay)} still to pay in</span> | ${esc(dateLabel(s.kuri.date))}`
+            : esc(dateLabel(s.kuri.date)), "var(--income)").replace('<div class="panel kpi"', `<div data-open-entry="${s.kuri.id}" title="Open this entry" class="panel kpi kpi-click"`)
+        : kpi("Gain", s.closed ? signed(s.realised_gain) : "—", s.closed ? "received minus paid in" : "worked out when the chit ends", "var(--income)"))
       + kpi("Ends", d.maturity_date ? esc(dateLabel(d.maturity_date)) : "—", "last instalment", "var(--redeem)");
   }
   return kpi("Invested", money(s.invested), "principal amount", "var(--invest)")
     + kpi("Value", money(s.value), s.value_as_on ? `you entered it as on ${esc(dateLabel(s.value_as_on))}` : "shown at what you put in")
-    + kpi("Gain", signed(s.gain), s.value_as_on ? `${money(s.unrealised_gain, { sign: true })} on paper · ${money(s.realised_gain, { sign: true })} realised` : "from maturities and withdrawals", "var(--income)")
+    + kpi("Gain", signed(s.gain), s.value_as_on ? `${money(s.unrealised_gain, { sign: true })} on paper | ${money(s.realised_gain, { sign: true })} realised` : "from maturities and withdrawals", "var(--income)")
     + kpi("Transactions", String(s.flows.length), "money in and out", "var(--transfer)");
 }
 
+// The page's buttons, in labelled groups: [label, buttons]. "Account" (Edit, Close, Delete) is added after these.
 function buttons(t, s) {
   const b = (what, label, primary = false) => `<button class="btn ${primary ? "btn-primary" : ""}" data-do="${what}">${label}</button>`;
-  if (t === "share") return b("funds", "Add funds") + b("withdraw", "Withdraw") + b("dividend", "+ Dividend") + b("action", "+ Market action", true);
-  if (s.closed) return "";
-  if (t === "fd") return "";
-  if (t === "rd") return b("funds", "Pay instalment", true);
-  if (t === "ppf") return b("redeem", "Withdraw") + b("funds", "Deposit", true);
-  if (isMetal(t)) return b("item", metalWords().add, true);
-  if (t === "chitty" && s.scheme) return b("redeem", "Prize received") + b("funds", "Pay instalment", true);
-  return b("value", "Update value") + b("redeem", "Maturity / withdraw") + b("funds", "Add money", true);
+  if (t === "share") return [["Money", b("funds", "Add funds") + b("withdraw", "Withdraw") + b("dividend", "+ Dividend")],
+                             ["Market", b("action", "+ Market action", true)]];
+  if (s.closed || t === "fd") return [];
+  if (t === "rd") return [["Money", b("funds", "Pay instalment", true)]];
+  if (t === "ppf") return [["Money", b("redeem", "Withdraw") + b("funds", "Deposit", true)]];
+  if (isMetal(t)) return [["Holdings", b("item", metalWords().add, true)]];
+  // a chit pays its amount once: after that only instalments are left
+  if (t === "chitty" && s.scheme) return [["Money", (s.kuri ? "" : b("redeem", "Amount received")) + b("funds", "Pay instalment", true)]];
+  return [["Money", b("redeem", "Maturity / withdraw") + b("funds", "Add money", true)], ["Value", b("value", "Update value")]];
+}
+const group = (label, html) => `<div class="act-grp"><span class="act-lbl">${label}</span><div class="act-btns">${html}</div></div>`;
+// the record buttons (Money | Market ...) sit in a bar just above the investment's history; the page head keeps Edit and ⋯
+function recordBar(t, s) {
+  const groups = inv.account.active ? buttons(t, s) : [];
+  if (!groups.length) return "";
+  return `<section class="panel rec-bar" style="margin-top:16px">${groups.map(([label, html]) => group(label, html)).join("")}</section>`;
 }
 
-/** "Closed on 10 Oct 2026 · received ₹1,03,000 · closed early" */
+/** "Closed on 10 Oct 2026 | received ₹1,03,000 | closed early" */
 function closedNote(d, a) {
   if (a.active || !d.closed_on) return "";
   const early = d.maturity_date && d.closed_on < d.maturity_date;
   return `<section class="panel panel-pad closed-note"><b>Closed on ${esc(dateLabel(d.closed_on))}</b>
-    <span class="muted"> · received ${money(d.closed_amount || 0)}${early ? ` · closed early (matures ${esc(dateLabel(d.maturity_date))})` : ""}</span>
+    <span class="muted"> | received ${money(d.closed_amount || 0)}${early ? ` | closed early (matures ${esc(dateLabel(d.maturity_date))})` : ""}</span>
     ${d.close_note ? `<div class="small faint" style="margin-top:4px">${esc(d.close_note)}</div>` : ""}</section>`;
 }
 
@@ -162,18 +179,19 @@ const SECTIONS = {
       const g = s.goal, p = Math.max(0, Math.min(100, g.progress_pct || 0));
       goal = `<section class="panel panel-pad"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">
           <h2>Goal${g.pct ? `: ${g.pct}% gain` : ""}${g.date ? ` by ${esc(dateLabel(g.date))}` : ""}</h2>
-          <span class="small muted">${money(s.total_profit)} of ${money(g.target_profit)} · <b>${g.progress_pct ?? 0}%</b></span></div>
+          <span class="small muted">${money(s.total_profit)} of ${money(g.target_profit)} | <b>${g.progress_pct ?? 0}%</b></span></div>
         <div class="progress"><div style="width:${p}%"></div></div>
         ${g.forecast_profit ? `<p class="small faint" style="margin:8px 0 0">Forecast profit: ${money(g.forecast_profit)}</p>` : ""}</section>`;
     }
     const acts = inv.actions || [], divs = inv.dividends || [];
     const tot = (k) => acts.reduce((a, r) => a + r[k], 0);
     return `
+    ${goal ? `<div style="margin-top:16px">${goal}</div>` : ""}
+    ${recordBar("share", s)}
     <div class="grid grid-main" style="margin-top:16px">
       <div class="stack">
-        ${goal}
         <section class="panel">
-          <div class="panel-head"><h2>Market actions</h2><span class="small faint">${acts.length} logged · profit is before charges</span></div>
+          <div class="panel-head"><h2>Market actions</h2><span class="small faint">${acts.length} logged | profit is before charges</span></div>
           <div class="panel-body" style="padding:14px 0 6px">${acts.length ? `<div class="table-wrap"><table>
             <thead><tr><th>Date</th><th>Stock(s)</th><th>Action</th><th class="num">Profit</th><th class="num">Charges</th><th class="num">Net</th><th></th></tr></thead>
             <tbody>${acts.map((r) => `<tr>
@@ -204,7 +222,7 @@ const SECTIONS = {
         <section class="panel">
           <div class="panel-head"><h2>Dividends</h2>${divs.length ? `<span class="small faint">${money(s.dividends)} in total</span>` : ""}</div>
           <div class="panel-body">${divs.length ? divs.map((r) => `<div class="bal-row">
-            <span><span class="cell-main">${esc(r.stock || "Dividend")}</span><div class="cell-sub">${esc(dateLabel(r.date))}${r.paid_into ? ` · into ${esc(r.paid_into)}` : ""}${r.note ? ` · ${esc(r.note)}` : ""}</div></span>
+            <span><span class="cell-main">${esc(r.stock || "Dividend")}</span><div class="cell-sub">${esc(dateLabel(r.date))}${r.paid_into ? ` | into ${esc(r.paid_into)}` : ""}${r.note ? ` | ${esc(r.note)}` : ""}</div></span>
             <span class="amt">${money(r.amount)} <button class="btn btn-ghost btn-sm btn-danger" data-del-div="${r.id}" aria-label="Delete">✕</button></span></div>`).join("")
             : `<p class="small faint" style="margin:0">None yet.</p>`}
             <p class="small faint" style="margin:12px 0 0">Dividends are paid into your bank: each is recorded there as Income, and kept out of this account's value and profit. Moving the money into this account later is an Add funds.</p></div>
@@ -213,44 +231,32 @@ const SECTIONS = {
     </div>`;
   },
 
-  fd(s, d) {
-    const payout = { maturity: "At maturity (cumulative)", monthly: "Monthly", quarterly: "Quarterly", yearly: "Yearly" }[s.payout];
-    const sched = s.payouts.length ? `<section class="panel">
-        <div class="panel-head"><h2>Interest payouts</h2><span class="small faint">${money(s.payouts[0].amount)} each</span></div>
+  fd(s) {
+    // rate, tenure, start, maturity and payout are all in the tiles above: only the payout list goes here
+    if (!s.payouts.length) return "";
+    return `<section class="panel" style="margin-top:16px">
+        <div class="panel-head"><h2 class="h2-info">Interest payouts ${info("fd_payouts")}</h2><span class="small faint">${money(s.payouts[0].amount)} each</span></div>
         <div class="panel-body" style="padding:14px 0 6px"><div class="table-wrap"><table>
           <thead><tr><th>Date</th><th class="num">Amount</th><th>Status</th></tr></thead>
           <tbody>${s.payouts.map((p, i) => `<tr><td>${esc(dateLabel(p.date))}</td><td class="num">${money(p.amount)}</td>
             <td>${p.recorded ? `<span class="status-pill on">Recorded</span>`
               : !inv.account.active ? `<span class="faint small">—</span>`
               : p.due ? `<button class="btn btn-sm btn-primary" data-payout="${i}">Record</button>` : `<span class="faint small">Upcoming</span>`}</td></tr>`).join("")}
-          </tbody></table></div>
-          <p class="small faint" style="margin:10px 20px 0">The last interest comes with the deposit at maturity: use “Close” then.</p></div>
-      </section>` : "";
-    return `<div class="grid grid-main" style="margin-top:16px">
-      <div class="stack">${sched || `<section class="panel panel-pad"><h2>Cumulative FD</h2>
-        <p class="small muted" style="margin:8px 0 0">Interest is added every quarter and paid with the deposit at maturity. When it matures,
-        use <b>Close</b> and enter the amount credited: the interest then counts as income.</p></section>`}</div>
-      <section class="panel"><div class="panel-head"><h2>Details</h2></div><div class="panel-body"><dl class="kv">
-        <dt>Rate</dt><dd>${d.rate ?? "—"}%</dd>
-        <dt>Tenure</dt><dd>${tenureLabel(d.term_months, d.term_days)}</dd>
-        <dt>Started</dt><dd>${d.start_date ? esc(dateLabel(d.start_date)) : "—"}</dd>
-        <dt>Matures</dt><dd>${d.maturity_date ? esc(dateLabel(d.maturity_date)) : "—"}</dd>
-        <dt>Interest</dt><dd>${esc(payout)}</dd>
-      </dl></div></section></div>`;
+          </tbody></table></div></div>
+      </section>`;
   },
 
   rd(s) {
-    return deposits(s, "Instalments");
+    return deposits(s, "Instalments", "rd_instalments");
   },
   ppf(s) {
-    return deposits(s, "Deposits", `PPF interest (${inv.details.rate}%) is worked out on the lowest balance between the 5th and the end of
-      each month, and credited every 31 March. Deposit by the 5th to earn that month's interest.`);
+    return deposits(s, "Deposits", "ppf_interest", false);
   },
 
   gold: (s) => metal(s),
   silver: (s) => metal(s),
   other: () => "",
-  chitty: (s) => (s.scheme ? deposits(s, "Instalments", "Instalments can be lower when the chit pays a dividend: enter what you actually paid.") : ""),
+  chitty: (s) => (s.scheme ? deposits(s, "Instalments", "chitty_instalments") : ""),
 };
 
 /** Your own extra fields for this type, with what you entered. */
@@ -264,14 +270,32 @@ function extras(d) {
     <div class="panel-body"><dl class="kv">${fields.map((f) => `<dt>${esc(f.label)}</dt><dd>${show(f, d.extra[f.key])}</dd>`).join("")}</dl></div></section>`;
 }
 
-function deposits(s, title, note = "") {
+// RD / PPF / chitty payments: numbered rows (#1 is the first), a progress bar when the term is known, and the fine print in an ⓘ
+function deposits(s, title, helpKey = "", useTerm = true) {
   const list = s.deposits || [];
+  const order = [...list].sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+  const term = useTerm ? s.term_months || inv.details.term_months || 0 : 0;   // PPF has no instalment count
+  const paid = s.paid_instalments ?? list.length;
+  // instalments paid before you started using the app (opening balance) come first, so numbering starts after them
+  const before = term ? Math.max(0, paid - list.length) : 0;
+  const num = new Map(order.map((r, i) => [r, before + i + 1]));
+  const head = term ? `<b>${paid}</b> of ${term} paid` : `${list.length} recorded`;
+  const bar = term ? `<div class="progress dep-bar"><div style="width:${Math.min(100, (paid * 100) / term)}%"></div></div>` : "";
   return `<section class="panel" style="margin-top:16px">
-    <div class="panel-head"><h2>${title}</h2><span class="small faint">${list.length} recorded</span></div>
-    <div class="panel-body">${list.length ? list.slice(0, 24).map((r) => `<div class="bal-row">
-        <span><span class="cell-main">${esc(dateLabel(r.date))}</span>${r.from_account ? `<div class="cell-sub">from ${esc(r.from_account)}</div>` : ""}</span>
-        <span class="amt">${money(r.amount)}</span></div>`).join("") : `<p class="small faint" style="margin:0">None recorded yet.</p>`}
-      ${note ? `<p class="small faint" style="margin:12px 0 0">${note}</p>` : ""}</div></section>`;
+    <div class="panel-head"><h2>${title}${helpKey ? ` ${info(helpKey)}` : ""}</h2>
+      <span class="dep-tools"><span class="small muted dep-count">${head}</span><a class="small" href="#/entries?account_id=${inv.account.id}&month=">Transactions →</a></span></div>
+    <div class="panel-body" style="padding:14px 0 6px">${bar ? `<div style="padding:0 20px">${bar}</div>` : ""}${list.length ? `<div class="table-wrap"><table>
+      <thead><tr><th style="width:56px">#</th><th>Date Paid</th><th>Paid From</th><th class="hide-sm">Mode</th><th class="num">Amount</th><th></th></tr></thead>
+      <tbody>${list.map((r) => `<tr class="click" data-entry="${r.id}" title="Open this payment">
+        <td><span class="dep-n">#${num.get(r)}</span></td>
+        <td><div class="cell-main">${esc(dateLabel(r.date))}</div>${r.note ? `<div class="cell-sub">${esc(r.note)}</div>` : ""}</td>
+        <td>${esc(r.from_account || "—")}</td>
+        <td class="hide-sm">${esc(r.payment_mode || "—")}</td>
+        <td class="num"><b>${money(r.amount)}</b></td>
+        <td class="right"><span class="btn btn-ghost btn-sm" aria-hidden="true">✎</span></td></tr>`).join("")}</tbody>
+      <tfoot><tr><td colspan="4">Total</td><td class="num">${money(list.reduce((a, r) => a + r.amount, 0))}</td><td></td></tr></tfoot></table></div>`
+      : `<div class="empty small">None recorded yet.</div>`}
+    </div></section>`;
 }
 
 /** Gold / silver: payments into it that aren't tied to any purchase / instalment (no weight recorded). */
@@ -287,8 +311,8 @@ function metal(s) {
   const warn = missing.length ? `<div class="callout warn" style="margin-top:16px">
       <b>${missing.length} payment${missing.length === 1 ? " has" : "s have"} no weight recorded</b>, so ${missing.length === 1 ? "it isn't" : "they aren't"}
       counted as ${missing.length === 1 ? (inv.summary.scheme ? "an instalment" : "a purchase") : inv.summary.scheme ? "instalments" : "purchases"} here:
-      ${missing.map((f) => `<div style="margin-top:6px">${esc(dateLabel(f.date))} · ${money(f.amount)}${f.note ? ` · ${esc(f.note)}` : ""}
-        · <a href="#/edit/${f.id}">Add its weight →</a></div>`).join("")}</div>` : "";
+      ${missing.map((f) => `<div style="margin-top:6px">${esc(dateLabel(f.date))} | ${money(f.amount)}${f.note ? ` | ${esc(f.note)}` : ""}
+        | <a href="#/edit/${f.id}">Add its weight →</a></div>`).join("")}</div>` : "";
   return warn + `<section class="panel" style="margin-top:16px">
     <div class="panel-head"><h2>${metalWords().many}</h2><span class="small faint">${items.length} ${inv.summary.scheme ? "payment" : "purchase"}${items.length === 1 ? "" : "s"}</span></div>
     <div class="panel-body" style="padding:14px 0 6px">${items.length ? `<div class="table-wrap"><table>
@@ -296,31 +320,35 @@ function metal(s) {
         <th class="num">Amount Paid</th><th class="hide-sm">Bill Name</th><th class="hide-sm">Document</th><th class="num">Status</th><th></th></tr></thead>
       <tbody>${items.map((i) => `<tr style="${i.sold_date ? "opacity:.6" : ""}">
         <td><div class="cell-main">${esc(dateLabel(i.date))}</div>${i.note ? `<div class="cell-sub">${esc(i.note)}</div>` : ""}</td>
-        <td class="num">${i.grams} g${own ? `<div class="cell-sub">${i.pure_grams} g pure</div>` : ""}</td>
+        <td class="num">${i.grams} g</td>
         ${own ? `<td class="num hide-sm">${i.purity}%</td>` : ""}
         <td class="num hide-sm">${i.rate ? `${money(i.rate)}/g` : "—"}</td>
         <td class="num">${money(i.total_paid)}${i.making_charges ? `<div class="cell-sub">premium ${money(i.making_charges)}</div>` : ""}</td>
         <td class="hide-sm">${esc(i.bill_name || "—")}</td>
         <td class="hide-sm small">${esc(i.doc || "—")}</td>
         <td class="num">${i.sold_date ? `Sold ${money(i.sold_amount)}<div class="cell-sub">${esc(dateLabel(i.sold_date))}</div>` : `<span class="faint">Holding</span>`}</td>
-        <td class="right" style="white-space:nowrap">${i.sold_date || !inv.account.active ? "" : `<button class="btn btn-sm" data-sell="${i.id}">Sell</button>`}
+        <td class="right" style="white-space:nowrap">${i.sold_date || !inv.account.active || inv.summary.scheme ? "" : `<button class="btn btn-sm" data-sell="${i.id}">Sell</button>`}
           ${i.entry_id || i.sold_entry_id ? "" : `<button class="btn btn-ghost btn-sm btn-danger" data-del-item="${i.id}" aria-label="Delete">✕</button>`}</td>
       </tr>`).join("")}</tbody></table></div>`
       : `<div class="empty small">Nothing added yet. Add each purchase with its weight.</div>`}</div></section>`;
 }
 
 function flows(s) {
-  // gold / silver: every payment and sale is already a row above, so only show money that isn't tied to one
+  // gold / silver: every payment and sale is already a row above, so only show money that isn't tied to one.
+  // RD / PPF / chitty: the Instalments (Deposits) list already has every payment in, so only show the rest
+  // (withdrawals, amount received) - and nothing at all when there's no other money.
   const metalType = isMetal(inv.details.inv_type);
-  const list = metalType ? unweighed(s).filter((f) => f.type !== "invest") : s.flows || [];
+  const listed = ["rd", "ppf", "chitty"].includes(inv.details.inv_type) && (s.deposits || []).length ? new Set(s.deposits.map((r) => r.id)) : null;
+  const list = metalType ? unweighed(s).filter((f) => f.type !== "invest")
+    : listed ? (s.flows || []).filter((f) => !listed.has(f.id)) : s.flows || [];
   if (!list.length) return "";
   return `<section class="panel" style="margin-top:16px">
-    <div class="panel-head"><h2>${metalType ? "Other money in &amp; out" : "Money in &amp; out"}</h2><a class="small" href="#/entries?account_id=${inv.account.id}">In Transactions →</a></div>
+    <div class="panel-head"><h2>${metalType ? "Other money in &amp; out" : "Money in &amp; out"}</h2><a class="small" href="#/entries?account_id=${inv.account.id}">Transactions →</a></div>
     <div class="panel-body" style="padding:14px 0 6px"><div class="table-wrap"><table>
       <thead><tr><th>Date</th><th>Type</th><th>Account</th><th class="num">Amount</th></tr></thead>
       <tbody>${list.slice(0, 50).map((f) => {
         const out = f.from_account_id === inv.account.id;
-        const label = f.type === "transfer" ? "Withdrawn" : ENTRY_LABEL[f.type];
+        const label = f.type === "transfer" ? "Withdrawn" : f.type === "redeem" && inv.details.inv_type === "chitty" ? "Received" : ENTRY_LABEL[f.type];
         return `<tr class="click" data-entry="${f.id}"><td class="small">${esc(dateLabel(f.date))}</td>
           <td><span class="chip t-${f.type}">${esc(label)}</span></td>
           <td>${esc(out ? `to ${f.to_account || ""}` : `from ${f.from_account || ""}`)}${f.note ? `<div class="cell-sub">${esc(f.note)}</div>` : ""}</td>
@@ -396,11 +424,14 @@ function wire() {
   }));
 
   on("[data-do=redeem]", () => modal({
-    title: d.inv_type === "ppf" ? "Withdraw from PPF" : d.inv_type === "chitty" ? "Prize money received" : `Maturity / withdrawal: ${a.name}`,
+    title: d.inv_type === "ppf" ? "Withdraw from PPF" : d.inv_type === "chitty" ? "Amount received" : `Maturity / withdrawal: ${a.name}`,
+    // chit fund: the kuri isn't income - you keep paying instalments - so there's no principal to fill in
     body: dateFld() + amtFld("Amount Received (₹)")
-      + fld("Principal Closed (₹)", `<input name="principal_amount" inputmode="decimal" value="${esc(s.invested ?? "")}">`,
-        "What you had put in. Amount received minus this counts as income (Investment Returns).")
-      + accFld("to_account_id", "Received In", banks(), firstBank) + noteFld(),
+      + (d.inv_type === "chitty" ? "" : fld("Principal Closed (₹)", `<input name="principal_amount" inputmode="decimal" value="${esc(s.invested ?? "")}">`,
+        "What you had put in. Amount received minus this counts as income (Investment Returns)."))
+      + accFld("to_account_id", "Received In", banks(), firstBank) + noteFld()
+      + (d.inv_type === "chitty" ? `<ul class="help-ul modal-note"><li>Nothing counts as income now: you keep paying the instalments.</li>
+          <li>When the last one is paid, use <b>Close</b>. The gain or loss is worked out then.</li></ul>` : ""),
     onSubmit: (v) => act(api.invPost(a.id, "redeem", v), "Recorded"),
   }));
 
@@ -455,6 +486,7 @@ function wire() {
   });
 
   $$("tr[data-entry]").forEach((r) => r.addEventListener("click", () => { location.hash = `#/edit/${r.dataset.entry}`; }));
+  $$("[data-open-entry]").forEach((r) => r.addEventListener("click", () => { location.hash = `#/edit/${r.dataset.openEntry}`; }));
 }
 
 /** Close: matured, broken early, sold out. Records the money that came back and moves it to Closed. */
@@ -523,8 +555,8 @@ function actionModal(r) {
 function itemModal() {
   const a = inv.account, metal = inv.details.inv_type, w = metalWords();
   const own = !inv.type.builtin;
-  const presets = metal === "gold" ? [["24K · 999", 99.9], ["24K · 995", 99.5], ["22K · 916", 91.6], ["18K · 750", 75]]
-    : [["999", 99.9], ["Sterling · 925", 92.5]];
+  const presets = metal === "gold" ? [["24K | 999", 99.9], ["24K | 995", 99.5], ["22K | 916", 91.6], ["18K | 750", 75]]
+    : [["999", 99.9], ["Sterling | 925", 92.5]];
   const payFrom = [...banks(true).map((b) => ({ id: b.id, name: b.name })), { id: "", name: "Already paid earlier (don't record a payment)" }];
   const p = modal({
     title: w.title,

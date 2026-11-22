@@ -18,6 +18,7 @@ from . import entries as entries_svc
 from .investments import add_months
 
 TYPES = {"cc_emi": "Credit card EMI", "personal": "Personal loan", "other": "Other loan"}
+WORKS_LIKE = {"cc_emi": "Card EMI: the whole EMI is an expense", "personal": "Loan: only the interest is an expense"}
 INTEREST_CATEGORY = "Loan Interest & Charges"
 
 
@@ -204,13 +205,74 @@ def _money_row(s):
     return out
 
 
+# ---------------------------------------------------------------- your own loan types
+
+def _type_name(ln):
+    if ln["type_id"]:
+        t = one("SELECT name FROM loan_types WHERE id = ?", (ln["type_id"],))
+        if t:
+            return t["name"]
+    return TYPES[ln["loan_type"]]
+
+
+def list_types():
+    return [{"id": t["id"], "name": t["name"], "works_like": t["works_like"], "works_like_label": WORKS_LIKE[t["works_like"]],
+             "used": t["used"]}
+            for t in rows("SELECT t.*, (SELECT COUNT(*) FROM loans l WHERE l.type_id = t.id) AS used "
+                          "FROM loan_types t ORDER BY t.name COLLATE NOCASE")]
+
+
+def _type_name_clean(p, current_id=None):
+    name = (p.get("name") or "").strip() if isinstance(p.get("name"), str) else ""
+    if not name:
+        raise ApiError("Give the loan type a name, e.g. 'Home loan'", field="name")
+    if len(name) > 40:
+        raise ApiError("Keep the name under 40 characters", field="name")
+    if name.lower() in (v.lower() for v in TYPES.values()) or \
+            one("SELECT id FROM loan_types WHERE name = ? COLLATE NOCASE AND id != ?", (name, current_id or 0)):
+        raise ApiError(f"There's already a loan type called {name}", field="name")
+    return name
+
+
+def add_type(p):
+    name = _type_name_clean(p)
+    w = p.get("works_like")
+    if w not in WORKS_LIKE:
+        raise ApiError("Choose how it works: like a loan or like a card EMI", field="works_like")
+    conn = get_db()
+    cur = conn.execute("INSERT INTO loan_types (name, works_like) VALUES (?, ?)", (name, w))
+    conn.commit()
+    return next(t for t in list_types() if t["id"] == cur.lastrowid)
+
+
+def rename_type(type_id, p):
+    if not one("SELECT id FROM loan_types WHERE id = ?", (type_id,)):
+        raise ApiError("Loan type not found", 404)
+    name = _type_name_clean(p, type_id)
+    conn = get_db()
+    conn.execute("UPDATE loan_types SET name = ? WHERE id = ?", (name, type_id))
+    conn.commit()
+    return next(t for t in list_types() if t["id"] == type_id)
+
+
+def delete_type(type_id):
+    t = one("SELECT t.*, (SELECT COUNT(*) FROM loans l WHERE l.type_id = t.id) AS used FROM loan_types t WHERE t.id = ?", (type_id,))
+    if not t:
+        raise ApiError("Loan type not found", 404)
+    if t["used"]:
+        raise ApiError(f"{t['name']} is used by {t['used']} loan{'s' if t['used'] > 1 else ''}, so it can't be deleted")
+    conn = get_db()
+    conn.execute("DELETE FROM loan_types WHERE id = ?", (type_id,))
+    conn.commit()
+
+
 def _out(ln, today=None):
     names = {a["id"]: a["name"] for a in rows("SELECT id, name FROM accounts")}
     cat = one("SELECT name FROM categories WHERE id = ?", (ln["category_id"],)) if ln["category_id"] else None
     o = {k: ln[k] for k in ("id", "name", "loan_type", "lender", "account_id", "bank_account_id", "category_id",
                             "tenure_months", "rate", "first_emi_date", "paid_before", "status", "closed_date", "notes")}
     o.update(principal=to_rupees(ln["principal"]), emi_original=to_rupees(ln["emi"]), charges=to_rupees(ln["charges"]),
-             type_label=TYPES[ln["loan_type"]], account=names.get(ln["account_id"]),
+             type_label=_type_name(ln), type_id=ln["type_id"], account=names.get(ln["account_id"]),
              bank_account=names.get(ln["bank_account_id"]), category=cat["name"] if cat else None)
     o["summary"] = summary(ln, today)
     return o
@@ -229,7 +291,8 @@ def overview(today=None):
     for i in active:
         for s in i["summary"]["schedule"]:
             if s["kind"] == "emi" and (s["date"][:7] == month or s["status"] == "due"):
-                this_month.append({"loan_id": i["id"], "name": i["name"], "loan_type": i["loan_type"], **s})
+                this_month.append({"loan_id": i["id"], "name": i["name"], "loan_type": i["loan_type"],
+                                   "type_label": i["type_label"], **s})
     this_month.sort(key=lambda s: s["date"])
     return {
         "items": items,
@@ -242,19 +305,28 @@ def overview(today=None):
             "active": len(active),
         },
         "types": TYPES,
+        "custom_types": list_types(),
     }
 
 
 def _clean_terms(p, existing=None):
     ex = existing or {}
     t = p.get("loan_type", ex.get("loan_type"))
+    type_id = p.get("type_id", ex.get("type_id"))
+    if type_id not in (None, "", 0):               # one of your own types: it decides how the loan is counted
+        lt = one("SELECT * FROM loan_types WHERE id = ?", (type_id,))
+        if not lt:
+            raise ApiError("That loan type no longer exists", field="loan_type")
+        t, type_id = lt["works_like"], lt["id"]
+    else:
+        type_id = None
     if t not in TYPES:
-        raise ApiError("Choose the kind of loan", field="loan_type")
+        raise ApiError("Choose the type of loan", field="loan_type")
     name = (p.get("name") or ex.get("name") or "").strip()
     if not name:
         raise ApiError("Give it a name, e.g. 'iPhone EMI' or 'HDFC personal loan'", field="name")
     c = {
-        "name": name[:80], "loan_type": t,
+        "name": name[:80], "loan_type": t, "type_id": type_id,
         "lender": (p.get("lender") or "").strip()[:80] or None,
         "principal": _paise(p.get("principal"), "principal"),
         "emi": _paise(p.get("emi"), "emi"),
@@ -334,16 +406,16 @@ def _record_start(ln, start):
         if ln["charges"]:
             ids.append(entries_svc.create({"type": "expense", "date": start, "amount": str(to_rupees(ln["charges"])),
                                            "category_id": _interest_cat(), "from_account_id": ln["account_id"],
-                                           "note": f"EMI processing charges · {ln['name']}"})["id"])
+                                           "note": f"EMI processing charges | {ln['name']}"})["id"])
     else:
         received = ln["principal"] - ln["charges"]
         ids.append(entries_svc.create({"type": "transfer", "date": start, "amount": str(to_rupees(received)),
                                        "from_account_id": ln["account_id"], "to_account_id": ln["bank_account_id"],
-                                       "note": f"Loan received · {ln['name']}"})["id"])
+                                       "note": f"Loan received | {ln['name']}"})["id"])
         if ln["charges"]:
             ids.append(entries_svc.create({"type": "expense", "date": start, "amount": str(to_rupees(ln["charges"])),
                                            "category_id": _interest_cat(), "from_account_id": ln["account_id"],
-                                           "note": f"Processing charges (deducted from loan) · {ln['name']}"})["id"])
+                                           "note": f"Processing charges (deducted from loan) | {ln['name']}"})["id"])
     if ids:
         get_db().execute("INSERT INTO loan_events (loan_id, date, kind, amount, charges, entry_ids) VALUES (?, ?, 'disbursal', ?, ?, ?)",
                          (ln["id"], start, received, ln["charges"], ",".join(map(str, ids))))
@@ -352,10 +424,10 @@ def _record_start(ln, start):
 
 def update(loan_id, p):
     ln = _loan(loan_id)
-    merged = {**{k: ln[k] for k in ("loan_type", "account_id", "bank_account_id", "category_id", "tenure_months",
+    merged = {**{k: ln[k] for k in ("loan_type", "type_id", "account_id", "bank_account_id", "category_id", "tenure_months",
                                     "first_emi_date", "paid_before", "name", "lender", "notes")},
               "principal": to_rupees(ln["principal"]), "emi": to_rupees(ln["emi"]), "charges": to_rupees(ln["charges"]),
-              **{k: v for k, v in p.items() if k != "loan_type"}}
+              **{k: v for k, v in p.items() if k not in ("loan_type", "type_id")}}
     merged["loan_type"] = ln["loan_type"]               # the kind can't change once entries exist
     c = _clean_terms(merged, ln)
     if ln["loan_type"] != "cc_emi":
@@ -409,7 +481,7 @@ def pay_emi(loan_id, p):
     interest = min(row["interest"], amount)
     principal = amount - interest
     d = _date(p.get("date"), "date", default=row["date"])
-    label = f"EMI {row['no']}/{row['no'] + len(pending) - 1} · {ln['name']}"
+    label = f"EMI {row['no']}/{row['no'] + len(pending) - 1} | {ln['name']}"
     pm = _mode(ln, p)
     ids = []
     if ln["loan_type"] == "cc_emi":
@@ -456,19 +528,19 @@ def prepay(loan_id, p, foreclose=False):
         if principal:
             ids.append(entries_svc.create({"type": "expense", "date": d, "amount": str(to_rupees(principal)),
                                            "category_id": ln["category_id"], "from_account_id": ln["account_id"],
-                                           "payment_mode_id": pm, "note": f"{word} · {ln['name']}"})["id"])
+                                           "payment_mode_id": pm, "note": f"{word} | {ln['name']}"})["id"])
         src_charges = ln["account_id"]
     else:
         src = p.get("from_account_id") or ln["bank_account_id"]
         if principal:
             ids.append(entries_svc.create({"type": "transfer", "date": d, "amount": str(to_rupees(principal)),
                                            "from_account_id": src, "to_account_id": ln["account_id"],
-                                           "payment_mode_id": pm, "note": f"{word} · {ln['name']}"})["id"])
+                                           "payment_mode_id": pm, "note": f"{word} | {ln['name']}"})["id"])
         src_charges = src
     if charges:
         ids.append(entries_svc.create({"type": "expense", "date": d, "amount": str(to_rupees(charges)),
                                        "category_id": _interest_cat(), "from_account_id": src_charges, "payment_mode_id": pm,
-                                       "note": f"{'Foreclosure' if foreclose else 'Prepayment'} charges · {ln['name']}"})["id"])
+                                       "note": f"{'Foreclosure' if foreclose else 'Prepayment'} charges | {ln['name']}"})["id"])
     conn = get_db()
     conn.execute("INSERT INTO loan_events (loan_id, date, kind, amount, principal, charges, mode, installment_no, entry_ids) "
                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -493,6 +565,29 @@ def undo_last(loan_id):
         conn.execute("UPDATE loans SET status = 'active', closed_date = NULL WHERE id = ?", (ln["id"],))
     conn.commit()
     return get(loan_id)
+
+
+def event_for_entry(entry_id):
+    """The loan payment (EMI, prepayment, closing or the loan reaching your bank) that made this entry, if any."""
+    return one("SELECT e.*, l.name AS loan_name FROM loan_events e JOIN loans l ON l.id = e.loan_id "
+               "WHERE ',' || e.entry_ids || ',' LIKE ?", (f"%,{int(entry_id)},%",))
+
+
+def remove_event_of_entry(entry_id):
+    """Deleting one entry of a loan payment removes the whole payment: all its entries, and it shows unpaid again.
+    Returns False when the entry isn't part of a loan payment."""
+    ev = event_for_entry(entry_id)
+    if not ev:
+        return False
+    if ev["kind"] == "disbursal":
+        raise ApiError(f"This is {ev['loan_name']} reaching your bank. To remove it, delete the loan itself.")
+    _delete_event_entries(ev)
+    conn = get_db()
+    conn.execute("DELETE FROM loan_events WHERE id = ?", (ev["id"],))
+    if ev["kind"] == "foreclose":
+        conn.execute("UPDATE loans SET status = 'active', closed_date = NULL WHERE id = ?", (ev["loan_id"],))
+    conn.commit()
+    return True
 
 
 def _delete_event_entries(ev):

@@ -3,6 +3,7 @@
 import { api } from "./api.js";
 import { $, $$, esc, goBack, notePageChange, toast } from "./util.js";
 import * as auth from "./views/auth.js";
+import * as idle from "./idle.js";
 import * as dashboard from "./views/dashboard.js";
 import * as entries from "./views/entries.js";
 import * as entryForm from "./views/entry-form.js";
@@ -65,7 +66,15 @@ async function ensureLoggedIn(name, params, extra = {}) {
   if (name === "forgot") { authMode(true); await auth.renderForgot(); return false; }
   if (name === "reset") { authMode(true); await auth.renderReset(params.token || "", proceed); return false; }
   const st = await api.authStatus();
-  if (st.state === "ok") { authMode(false); return true; }
+  if (st.state === "ok") {
+    authMode(false);
+    idle.start(st.idle_minutes, (m) => {
+      authMode(true);
+      auth.renderLogin(proceed, { message: `Logged out after ${m} minutes of inactivity.` });
+    });
+    return true;
+  }
+  idle.stop();
   authMode(true);
   if (st.state === "no_account") auth.renderRegister(proceed);
   else if (st.state === "mfa_setup") await auth.renderMfaSetup(proceed);
@@ -99,7 +108,9 @@ async function navigate(extra = {}) {
     view.innerHTML = `<div class="panel empty"><div class="big">⚠</div><p>${esc(err.message)}</p>
       <button class="btn" data-retry>Retry</button></div>`;
   }
-  window.scrollTo(0, 0);
+  // a page can ask to keep the place it scrolled to (Transactions: another page of the list)
+  if (view.dataset.keepScroll) delete view.dataset.keepScroll;
+  else window.scrollTo(0, 0);
 }
 
 initTheme();

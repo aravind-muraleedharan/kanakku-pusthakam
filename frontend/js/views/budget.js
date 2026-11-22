@@ -2,13 +2,15 @@
 // months side by side (you add and delete months), amounts and notes per month, payments ticked as done, and whether the money is enough.
 import { api } from "../api.js";
 import { info } from "../help.js";
-import { $, $$, confirmDialog, esc, modal, money, monthLabel, toast } from "../util.js";
+import { $, $$, confirmDialog, esc, modal, money, monthLabel, toast, downloadFile } from "../util.js";
 
 let g = null;
 let phoneMonth = 0;                 // on phones one month is shown at a time
 
 const monthName = (m) => monthLabel(m).split(" ")[0];
 const BIN = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>`;
+// note page: an outline when empty; filled (with lines) once a note is written
+const NOTE = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="pg" d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M15 3v4h4"/><path class="ln" d="M8.5 11.5h7M8.5 15h7M8.5 18.5h4"/></svg>`;
 const TICK = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
 
 export async function render() {
@@ -18,7 +20,7 @@ export async function render() {
 }
 
 function when(c) {
-  if (c.running) return `this month · ${c.days} day${c.days === 1 ? "" : "s"} left`;
+  if (c.running) return `this month | ${c.days} day${c.days === 1 ? "" : "s"} left`;
   return c.days <= 31 ? `starts in ${c.days} day${c.days === 1 ? "" : "s"}` : "plan ahead";
 }
 
@@ -29,13 +31,14 @@ function card(c, i) {
     <div class="bx-grid">
       <div><div class="bx-k">Income</div><div class="bx-v c-income">${money(c.income)}</div></div>
       <div><div class="bx-k">Expenses</div><div class="bx-v c-expense">${money(c.expense)}</div></div>
-      <div><div class="bx-k">Paid</div><div class="bx-v">${money(c.paid)}<small>${c.done} of ${c.items}</small></div></div>
+      <div><div class="bx-k">Paid</div><div class="bx-v">${money(c.paid)}${c.items ? `<span class="bx-cnt ${c.done === c.items ? "all" : ""}"
+          title="${c.done} of ${c.items} payments made">${c.done === c.items ? "✓ all paid" : `${c.done}/${c.items} paid`}</span>` : ""}</div></div>
       <div><div class="bx-k">Still to pay</div><div class="bx-v" style="color:var(--warn)">${money(c.still_to_pay)}</div></div>
     </div>
     <div class="progress bx-bar"><div style="width:${pct}%"></div></div>
     ${!c.income && !c.expense ? `<div class="bx-res none"><span>Nothing planned yet</span></div>`
-      : c.balance >= 0 ? `<div class="bx-res ok"><span>✓ Sufficient: ${money(c.balance)} spare${info("sufficient")}</span><span>income − expenses</span></div>`
-      : `<div class="bx-res short"><span>⚠ Short by ${money(-c.balance)}${info("sufficient")}</span><span>income − expenses</span></div>`}
+      : c.balance >= 0 ? `<div class="bx-res ok"><span>✓ ${money(c.balance)} spare${info("sufficient")}</span></div>`
+      : `<div class="bx-res short"><span>⚠ ${money(-c.balance)} short${info("sufficient")}</span></div>`}
     <div class="bx-acts">
       ${c.copy_from ? `<button class="btn btn-sm" data-copy="${c.month}" data-from="${c.copy_from}">Copy ${esc(monthName(c.copy_from))}</button>` : ""}
       ${c.has_data ? `<button class="btn btn-sm btn-ghost" data-clear="${c.month}">Clear</button>` : ""}
@@ -49,11 +52,10 @@ function paint() {
   const empty = !g.income.length && !g.expense.length;
   $("#view").innerHTML = `
     <div class="page-head">
-      <div><h1>Monthly Budget</h1>
-        <div class="sub muted small">Plan your income and expenses for the months ahead, track payments as you make them, and see if your income covers your expenses.</div></div>
+      <div><h1 class="h1-info">Monthly Budget ${info("budget_how")}</h1></div>
+      ${g.months.length && !empty ? `<button type="button" class="btn" id="bx-export" title="Every month with entries, in one Excel file">Export to Excel</button>` : ""}
     </div>
     <div class="bx-sum">${g.months.map(card).join("")}${addCard()}</div>
-    ${empty || !g.months.length ? "" : `<p class="small faint bx-hint">Tick ✓ when a payment is made. ✎ adds a note for that month. Point at an item to rename or delete it. Amounts save as you leave each box.</p>`}
     ${!g.months.length ? "" : empty ? `<section class="panel bx-empty"><h3>Your budget is empty</h3>
         <p class="muted small">Add the money you expect to receive and the payments you need to make.<br>
         These items belong to the budget only; they don't change your categories or transactions.</p>
@@ -103,7 +105,7 @@ function row(kind, r) {
         ${x.note ? `<span class="note-txt">${esc(x.note)}</span>` : ""}</td>
       <td class="bx-done bx-m${i} ${done ? "is-done" : ""}">${kind === "expense"
         ? `<button type="button" class="tick ${done ? "on" : ""}" data-tick="${key}" data-key="t:${key}" aria-pressed="${done}" aria-label="${done ? "Paid" : "Mark as paid"}: ${esc(r.name)}, ${esc(monthName(c.month))}">${TICK}</button>` : ""}</td>
-      <td class="bx-note bx-m${i} ${done ? "is-done" : ""}"><button type="button" class="pen ${x.note ? "on" : ""}" data-note="${key}" data-key="n:${key}" title="${esc(x.note || "Add a note")}" aria-label="Note">✎</button></td>`;
+      <td class="bx-note bx-m${i} ${done ? "is-done" : ""}"><button type="button" class="pen ${x.note ? "on" : ""}" data-note="${key}" data-key="n:${key}" title="${esc(x.note || "Add a note")}" aria-label="${x.note ? "Note: " + esc(x.note) : "Add a note"}">${NOTE}</button></td>`;
   }).join("");
   return `<tr class="bx-row"><td class="bx-name"><div class="row-in"><span class="cell-main">${esc(r.name)}</span>
       <span class="bx-rowacts"><button type="button" class="bx-ico" data-rename="${r.id}" data-kind="${kind}" title="Rename" aria-label="Rename ${esc(r.name)}">✎</button>
@@ -117,6 +119,7 @@ async function save(month, item) {
 }
 
 function bind() {
+  $("#bx-export")?.addEventListener("click", (e) => downloadFile(api.budgetXlsxUrl(), "budget.xlsx", e.currentTarget));
   $$("[data-pm]").forEach((b) => b.addEventListener("click", () => { phoneMonth = +b.dataset.pm; paint(); }));
   $$(".bx-table input[data-key]").forEach((inp) => {
     inp.dataset.was = inp.value;
@@ -134,7 +137,7 @@ function bind() {
     const [id, m] = b.dataset.note.split(":");
     const r = findItem(id);
     modal({
-      title: `Note · ${r.name} · ${monthLabel(m)}`, submitLabel: "Save note",
+      title: `Note | ${r.name} | ${monthLabel(m)}`, submitLabel: "Save note",
       body: `<div class="field"><textarea name="note" rows="3" maxlength="200" placeholder="e.g. due on the 5th, paid by UPI">${esc(r.cells[m].note || "")}</textarea>
         <div class="hint">Leave it empty to remove the note.</div></div>`,
       onSubmit: async (v) => { await save(m, { item_id: +id, note: v.note }); return true; },

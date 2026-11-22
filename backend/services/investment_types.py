@@ -39,6 +39,7 @@ def _out(t, used=None):
         "color": _color(t),
         # Gold Tree: a monthly gold savings scheme (asks for monthly amount, months, due day like an RD)
         "scheme": t["works_like"] == "gold" and t["name"].strip().lower() == "gold tree",
+        "fixed": _fixed(t),
         "used": used if used is not None else
         one("SELECT COUNT(*) AS n FROM investment_details WHERE type_id = ?", (t["id"],))["n"],
     }
@@ -110,3 +111,66 @@ def clean_extra(fields, values):
             v = v[:200]
         out[f["key"]] = v
     return json.dumps(out, ensure_ascii=False) if out else None
+
+
+# ---------------------------------------------------------------- managed from Settings
+
+def _fixed(t):
+    """Built-in types (and Gold Tree, which the scheme maths recognises by its name) keep their name."""
+    return bool(t["builtin"]) or (t["works_like"] == "gold" and t["name"].strip().lower() == "gold tree")
+
+
+def _clean_name(name, current_id=None):
+    name = name.strip() if isinstance(name, str) else ""
+    if not name:
+        raise ApiError("Give the investment type a name, e.g. 'Mutual funds'", field="name")
+    if len(name) > 40:
+        raise ApiError("Keep the name under 40 characters", field="name")
+    if one("SELECT id FROM investment_types WHERE name = ? COLLATE NOCASE AND id != ?", (name, current_id or 0)):
+        raise ApiError(f"There's already an investment type called {name}", field="name")
+    return name
+
+
+def add_type(p):
+    from ..db import get_db
+    name = _clean_name(p.get("name"))
+    w = p.get("works_like")
+    if w not in WORKS_LIKE:
+        raise ApiError("Choose how it works", field="works_like")
+    conn = get_db()
+    order = one("SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM investment_types")["n"]
+    cur = conn.execute("INSERT INTO investment_types (name, works_like, sort_order) VALUES (?, ?, ?)", (name, w, order))
+    conn.commit()
+    return get(cur.lastrowid)
+
+
+def update_type(type_id, p):
+    """Rename (your own types only) and switch on / off (any type: off = not offered for new investments)."""
+    from ..db import get_db
+    t = one("SELECT * FROM investment_types WHERE id = ?", (type_id,))
+    if not t:
+        raise ApiError("Investment type not found", status=404)
+    conn = get_db()
+    if "name" in p and p["name"] != t["name"]:
+        if _fixed(t):
+            raise ApiError(f"{t['name']} is built in, so its name can't change", field="name")
+        conn.execute("UPDATE investment_types SET name = ? WHERE id = ?", (_clean_name(p["name"], type_id), type_id))
+    if "active" in p:
+        conn.execute("UPDATE investment_types SET active = ? WHERE id = ?", (1 if p["active"] else 0, type_id))
+    conn.commit()
+    return get(type_id)
+
+
+def delete_type(type_id):
+    from ..db import get_db
+    t = one("SELECT * FROM investment_types WHERE id = ?", (type_id,))
+    if not t:
+        raise ApiError("Investment type not found", status=404)
+    if _fixed(t):
+        raise ApiError(f"{t['name']} is built in, so it can't be deleted. Switch it off instead.")
+    used = one("SELECT COUNT(*) AS n FROM investment_details WHERE type_id = ?", (type_id,))["n"]
+    if used:
+        raise ApiError(f"{t['name']} is used by {used} investment{'s' if used > 1 else ''}, so it can't be deleted")
+    conn = get_db()
+    conn.execute("DELETE FROM investment_types WHERE id = ?", (type_id,))
+    conn.commit()

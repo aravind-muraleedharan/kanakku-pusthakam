@@ -67,6 +67,9 @@ export const api = {
   invPut: (id, path, data) => request("PUT", `/api/investments/${id}/${path}`, data),
   invDelete: (id, path) => request("DELETE", `/api/investments/${id}/${path}`),
   investmentTypes: () => request("GET", "/api/investment-types"),
+  addInvestmentType: (data) => request("POST", "/api/investment-types", data),
+  updateInvestmentType: (id, data) => request("PUT", `/api/investment-types/${id}`, data),
+  deleteInvestmentType: (id) => request("DELETE", `/api/investment-types/${id}`),
 
   // loans
   loans: () => request("GET", "/api/loans"),
@@ -74,6 +77,10 @@ export const api = {
   createLoan: (data) => request("POST", "/api/loans", data),
   updateLoan: (id, data) => request("PUT", `/api/loans/${id}`, data),
   deleteLoan: (id) => request("DELETE", `/api/loans/${id}`),
+  loanTypes: () => request("GET", "/api/loans/types"),
+  addLoanType: (data) => request("POST", "/api/loans/types", data),
+  renameLoanType: (id, data) => request("PUT", `/api/loans/types/${id}`, data),
+  deleteLoanType: (id) => request("DELETE", `/api/loans/types/${id}`),
   loanPost: (id, path, data) => request("POST", `/api/loans/${id}/${path}`, data || {}),
 
   // monthly budget: own items, up to three months
@@ -92,9 +99,10 @@ export const api = {
   register: (d) => request("POST", "/api/auth/register", d),
   login: (d) => request("POST", "/api/auth/login", d),
   loginCode: (code) => request("POST", "/api/auth/login/code", { code }),
-  mfaBegin: () => request("POST", "/api/auth/mfa/begin"),
+  mfaBegin: (password) => request("POST", "/api/auth/mfa/begin", password ? { password } : {}),
   mfaConfirm: (code) => request("POST", "/api/auth/mfa/confirm", { code }),
   logout: () => request("POST", "/api/auth/logout"),
+  ping: () => request("POST", "/api/auth/ping"),
   forgot: (email) => request("POST", "/api/auth/forgot", { email }),
   resetCheck: (token) => request("POST", "/api/auth/reset/check", { token }),
   reset: (d) => request("POST", "/api/auth/reset", d),
@@ -108,10 +116,13 @@ export const api = {
   // system
   info: () => request("GET", "/api/system/info"),
   backups: () => request("GET", "/api/system/backups"),
+  backupNow: () => request("POST", "/api/system/backups"),
   backupTo: (path) => request("POST", "/api/system/backup-to", { path }),
   restoreUpload: (formData) => request("POST", "/api/system/restore", formData),
   restoreBackup: (file, password) => request("POST", "/api/system/restore-backup", { file, password }),
   exportUrl: (params) => `/api/system/export.csv${qs(params)}`,
+  budgetXlsxUrl: () => "/api/budget/export.xlsx",
+  reportsXlsxUrl: (range) => `/api/reports/export.xlsx${qs(range)}`,
 };
 
 export { qs };

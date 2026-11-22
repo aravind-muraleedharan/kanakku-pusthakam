@@ -136,6 +136,14 @@ def enable_totp(user, secret, code):
     get_db().commit()
 
 
+def confirm_password(user, password):
+    """Re-check the password before a sensitive change (e.g. pairing a new phone). Wrong guesses count towards the lockout."""
+    _check_lock(user)
+    if not check_password_hash(user["password_hash"], password or ""):
+        _fail(user)
+        raise ApiError("Password is incorrect", field="password")
+
+
 def change_password(user, current, new):
     if not check_password_hash(user["password_hash"], current or ""):
         raise ApiError("Current password is incorrect", field="current")

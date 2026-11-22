@@ -27,22 +27,23 @@ function bindTips(root) {
  * Monthly income vs expense grouped bars, with the net savings as a dot per month.
  * rows: [{month, income, expense, net}]
  */
-export function incomeExpenseChart(el, rows, { onClick } = {}) {
+export function incomeExpenseChart(el, rows, { onClick, selected } = {}) {
   if (!rows.length || rows.every((r) => !r.income && !r.expense && !r.net)) {
     el.innerHTML = `<div class="empty small">No income or expenses in these months yet.<br>Add transactions and the chart fills in.</div>`;
     return;
   }
   const W = 720, H = 250, L = 52, R = 12, T = 14, B = 30;
-  const max = niceMax(Math.max(...rows.map((r) => Math.max(r.income, r.expense)), 0));
-  const minNet = Math.min(0, ...rows.map((r) => r.net));
-  const min = minNet < 0 ? -niceMax(-minNet) : 0;
+  // the scale runs in round steps (₹50K, ₹1L, ...) from zero, so every gridline lands on a round amount
+  const top = Math.max(...rows.map((r) => Math.max(r.income, r.expense)), 0);
+  const low = Math.min(0, ...rows.map((r) => r.net));
+  const step = niceMax((top - low) / 4 || 1000);
+  const max = Math.max(step, Math.ceil(top / step) * step);
+  const min = Math.floor(low / step) * step;
   const y = (v) => T + (H - T - B) * (1 - (v - min) / (max - min));
   const slot = (W - L - R) / rows.length;
   const bw = Math.max(3, Math.min(18, slot * 0.32));
-  const ticks = 4;
   let s = "";
-  for (let i = 0; i <= ticks; i++) {
-    const v = min + ((max - min) * i) / ticks;
+  for (let v = min; v <= max + 1e-6; v += step) {
     s += `<line class="grid-line" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>`;
     s += `<text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${moneyShort(v)}</text>`;
   }
@@ -52,7 +53,8 @@ export function incomeExpenseChart(el, rows, { onClick } = {}) {
     const cx = L + slot * i + slot / 2;
     const tipHtml = `<b>${esc(monthShort(r.month))}</b><br>Income ${money(r.income)}<br>Expense ${money(r.expense)}<br>Net ${money(r.net)}`;
     s += `<g class="col" data-month="${r.month}" data-tip="${esc(tipHtml)}" style="cursor:${onClick ? "pointer" : "default"}">`;
-    s += `<rect x="${cx - slot / 2}" y="${T}" width="${slot}" height="${H - T - B}" fill="transparent"/>`;
+    // the month picked above the chart gets a light band behind its bars
+    s += `<rect x="${cx - slot / 2}" y="${T}" width="${slot}" height="${H - T - B}" rx="6" fill="${r.month === selected ? "var(--brand-soft)" : "transparent"}"/>`;
     s += `<rect x="${cx - bw - 1}" y="${y(r.income)}" width="${bw}" height="${Math.max(0, y(0) - y(r.income))}" rx="2" fill="var(--income)"/>`;
     s += `<rect x="${cx + 1}" y="${y(r.expense)}" width="${bw}" height="${Math.max(0, y(0) - y(r.expense))}" rx="2" fill="var(--expense)"/>`;
     s += `<circle cx="${cx}" cy="${y(r.net)}" r="3.5" fill="var(--panel)" stroke="var(--ink)" stroke-width="1.5"/>`;
@@ -90,7 +92,8 @@ export function barList(el, items, { kind = "expense", onClick, empty = "Nothing
 /**
  * Donut chart with a legend. items: [{label, value, color, sub?}]. Slices under ~1% still show a sliver.
  */
-export function donutChart(el, items, { centerLabel = "Total", centerValue, onClick, empty = "Nothing invested yet", label = "Investments by type" } = {}) {
+// compact: the legend shows only names and %; amounts and the extra line move into the hover tip
+export function donutChart(el, items, { centerLabel = "Total", centerValue, onClick, empty = "Nothing invested yet", label = "Investments by type", compact = false } = {}) {
   const list = items.filter((i) => i.value > 0);
   const total = list.reduce((a, i) => a + i.value, 0);
   if (!total) {
@@ -103,7 +106,10 @@ export function donutChart(el, items, { centerLabel = "Total", centerValue, onCl
   list.forEach((i, idx) => {
     const frac = i.value / total;
     const a1 = a0 + Math.max(frac, 0.004) * Math.PI * 2;
-    const tip = `<b>${esc(i.label)}</b><br>${money(i.value)} · ${(frac * 100).toFixed(1)}%`;
+    // compact (Dashboard): the % is already beside the name, so the tip gives the amount and how many investments
+    const tip = compact ? `<b>${esc(i.label)}</b><br>${i.sub ? `${esc(i.sub)} | ` : ""}${money(i.value)}`
+      : `<b>${esc(i.label)}</b><br>${money(i.value)} | ${(frac * 100).toFixed(1)}%`;
+    i._tip = tip;
     if (list.length === 1) {
       s += `<g data-idx="${idx}" data-tip="${esc(tip)}"><circle cx="${C}" cy="${C}" r="${(R + r) / 2}" fill="none" stroke="${i.color}" stroke-width="${R - r}"/></g>`;
     } else {
@@ -120,14 +126,20 @@ export function donutChart(el, items, { centerLabel = "Total", centerValue, onCl
         <circle cx="${C}" cy="${C}" r="${r - 2}" fill="transparent"/>
         <text x="${C}" y="${C - 4}" text-anchor="middle" class="donut-label">${esc(centerLabel)}</text>
         <text x="${C}" y="${C + 16}" text-anchor="middle" class="donut-value">${esc(centerValue ?? moneyShort(total))}</text></g>`;
-  el.innerHTML = `<div class="donut-wrap">
-    <div class="chart donut"><svg viewBox="0 0 200 200" role="img" aria-label="${esc(label)}">${s}</svg></div>
-    <div class="donut-legend">${list.map((i, idx) => `
+  const legend = compact
+    ? `<div class="donut-legend compact">${list.map((i, idx) => `
+      <div class="dl-row ${onClick ? "click" : ""}" data-idx="${idx}" data-tip="${esc(i._tip)}">
+        <i style="background:${i.color}"></i><span class="dl-name">${esc(i.label)}</span>
+        <span class="dl-pct">${((i.value / total) * 100).toFixed(1)}%</span></div>`).join("")}</div>`
+    : `<div class="donut-legend">${list.map((i, idx) => `
       <div class="dl-row ${onClick ? "click" : ""}" data-idx="${idx}">
         <i style="background:${i.color}"></i>
         <span class="dl-name">${esc(i.label)}${i.sub ? `<small>${esc(i.sub)}</small>` : ""}</span>
         <span class="dl-val">${money(i.value)}<small>${((i.value / total) * 100).toFixed(1)}%</small></span>
-      </div>`).join("")}</div>
+      </div>`).join("")}</div>`;
+  el.innerHTML = `<div class="donut-wrap${compact ? " compact" : ""}">
+    <div class="chart donut"><svg viewBox="0 0 200 200" role="img" aria-label="${esc(label)}">${s}</svg></div>
+    ${legend}
   </div>`;
   bindTips(el);
   if (onClick) el.querySelectorAll("[data-idx]").forEach((n) => n.addEventListener("click", () => onClick(list[+n.dataset.idx])));

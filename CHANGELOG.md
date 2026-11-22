@@ -1,5 +1,50 @@
 # Changelog
 
+## 2.0.0 (2026-11-22)
+
+A big redesign: every page was reworked for clarity, with plain wording and short ⓘ help where a term needs it.
+
+### New
+- **Reports, rebuilt:** two tabs, **Summary** (totals, income vs expense chart, month by month, how you paid) and
+  **Categories** (a share strip of every category, plus category × month). Each total shows ▲/▼ against the same
+  length of time just before. A period button shows the dates and offers quick picks or custom dates
+- **Excel exports with charts:** Reports exports a styled workbook (Summary, Categories, Expense / Income by month)
+  with real Excel charts; Monthly Budget exports a matching styled sheet. No extra software or internet needed
+- **Transactions:** an Earned | Spent panel with a category ring, one month or any date range, 3-column legend,
+  pages of 50, and a filter button; clicking a total filters the list
+- **Your own loan types** (e.g. "Gold loan", "works like a loan") and **your own investment types**
+  (e.g. "Mutual funds", "works like Stocks"), managed in Settings
+- **Settings, redesigned:** a list of sections, each on its own page. Lists (categories, payment modes, loan and
+  investment types) rename in place, switch on/off, show how often they're used and delete only when unused
+- **Backups page:** status at a glance, **Back up now**, back up to a folder (shows when it was last done there),
+  and the saved backups grouped by week
+- **Daily automatic backups:** at the first login of the day, only if something changed. The last 7 days are kept,
+  one a week for about 2 months, and the last 3 made before an update or a restore
+- **Auto-logout counts real activity:** moving the mouse, typing or scrolling keeps you logged in; after the chosen
+  minutes with none, the app logs out on its own. Quick choices: 5, 15, 30 minutes or 1 hour
+- **Security page:** status at a glance, show/hide password, a strength meter, and the mail settings folded away
+- **About page:** what the app is, and that your data stays on your computer
+- **`update.sh`:** updates the bundled libraries when you're online; the app is tested with them first, and
+  `--undo` goes back. The app itself still never uses the internet
+
+### Changed
+- **Investments:** tiles for invested, gain (▲/▼ %) and current value; actions grouped by what they do
+  (money, market, holdings, value); chit funds record the amount received ("kuri") and settle the gain or loss on
+  closing; a cumulative FD shows the interest built up so far
+- **Loans & EMIs:** tiles for left to repay, EMIs this month and interest left to pay; Pay EMI and Prepay above the
+  payments; the schedule pages by year; deleting an EMI's transaction removes that EMI
+- **Monthly Budget:** "✓ ₹X spare" / "⚠ ₹X short" in one line, "N/M paid" per month, a note icon for each amount
+- **Add / edit transaction:** coloured by type with a one-line explanation; Today / Yesterday marked
+- Pop-up windows redesigned; round ← back buttons everywhere; the line under each title shows the bank and dates
+
+### Security
+- Pairing a new phone from Settings asks for your password first
+- Restoring refuses a database file that was changed outside the app (extra triggers, views or tables)
+
+### Fixed
+- The app now starts on Python 3.10 and 3.11 again (a line in the Excel export needed Python 3.12)
+- Totals no longer show odd percentages (e.g. "800% more spent than earned"); they say it in rupees
+
 ## 1.3.1 (2026-11-13)
 
 ### New

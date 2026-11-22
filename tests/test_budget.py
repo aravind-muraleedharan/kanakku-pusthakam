@@ -19,6 +19,12 @@ from backend.services.reports import shift_month  # noqa: E402
 from tests.test_api import login  # noqa: E402
 
 TODAY = date.today()
+
+
+def budget_label(m):
+    from backend.services.budget_xlsx import _month_label
+    return _month_label(m)
+
 CUR = TODAY.strftime("%Y-%m")
 NEXT, NEXT2 = shift_month(CUR, 1), shift_month(CUR, 2)
 
@@ -90,6 +96,22 @@ class BudgetTest(unittest.TestCase):
         self.put(NEXT, [{"item_id": rent, "amount": "-1"}], status=400)
         self.put(NEXT, [{"item_id": rent, "amount": "1e5"}], status=400)
         self.put(NEXT, [{"item_id": 9999, "amount": "1"}], status=404)
+
+    def test_excel_export_skips_empty_months(self):
+        import io, zipfile
+        self.assertEqual(self.c.get("/api/budget/export.xlsx").status_code, 404)        # nothing to export yet
+        sal, rent = self.add("income", "Salary"), self.add("expense", "House rent")
+        self.put(NEXT, [{"item_id": sal, "amount": "50000"}, {"item_id": rent, "amount": "16000", "note": "Owner & co"}])
+        self.put(NEXT, [{"item_id": rent, "done": True}])
+        r = self.c.get("/api/budget/export.xlsx")                                      # NEXT2 has nothing: left out
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(f"budget_{NEXT}.xlsx", r.headers["Content-Disposition"])
+        z = zipfile.ZipFile(io.BytesIO(r.data))
+        xml = z.read("xl/worksheets/sheet1.xml").decode()
+        self.assertIn(budget_label(NEXT), xml)
+        self.assertNotIn(budget_label(NEXT2), xml)
+        for want in ("Salary", "House rent", "Owner &amp; co", "✓", ">50000<", ">16000<", ">34000<"):
+            self.assertIn(want, xml)
 
     def test_copy_clear_rename_delete_item(self):
         sal, rent = self.add("income", "Salary"), self.add("expense", "House rent")

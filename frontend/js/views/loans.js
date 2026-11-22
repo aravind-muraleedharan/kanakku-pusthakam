@@ -1,13 +1,13 @@
 // Loans & EMIs: overview (#/loans) and one loan with its schedule (#/loan/3).
 import { api } from "../api.js";
-import { info } from "../help.js";
+import { info, setHelp } from "../help.js";
 import { masters, active, invalidateMasters } from "../state.js";
-import { $, $$, backButton, confirmDialog, dateLabel, esc, modal, money, options, toast, todayISO } from "../util.js";
+import { $, $$, backButton, confirmDialog, dateLabel, esc, modal, metaItem, money, options, toast, todayISO } from "../util.js";
 import { linkModeToAccount, modeSelect } from "./investments.js";
 
 const TYPE_LABEL = { cc_emi: "Credit card EMI", personal: "Personal loan", other: "Other loan" };
 const TYPE_COLOR = { cc_emi: "var(--t-share)", personal: "var(--t-chitty)", other: "var(--t-other)" };
-const chip = (t) => `<span class="type-chip"><i style="background:${TYPE_COLOR[t]}"></i>${TYPE_LABEL[t]}</span>`;
+const chip = (t, label) => `<span class="type-chip"><i style="background:${TYPE_COLOR[t]}"></i>${esc(label || TYPE_LABEL[t])}</span>`;
 
 function kpi(label, value, foot = "", color = "var(--net)", help = "") {
   return `<div class="panel kpi"><div class="kpi-label"><span class="dot" style="background:${color}"></span>${esc(label)}${help ? info(help) : ""}</div>
@@ -27,14 +27,14 @@ export async function render() {
 
   $("#view").innerHTML = `
     <div class="page-head">
-      <div><h1>Loans &amp; EMIs</h1><div class="sub muted small">${t.active} running</div></div>
+      <div><h1>Loans &amp; EMIs</h1></div>
       <div class="toolbar"><button class="btn btn-primary" id="new-loan">+ Loan or EMI</button></div>
     </div>
     <div class="grid grid-4">
-      ${kpi("Outstanding", money(t.outstanding), "principal left to repay", "var(--expense)")}
-      ${kpi("EMIs this month", money(t.emi_month), t.due_count ? `<span style="color:var(--warn)">${t.due_count} due to record</span>` : "all recorded", "var(--warn)")}
-      ${kpi("Interest left to pay", money(t.interest_left), "if paid as scheduled", "var(--invest)", "interest_only")}
-      ${kpi("Running", String(t.active), closed.length ? `${closed.length} closed` : "", "var(--transfer)")}
+      ${kpi("Left to repay", `<span class="c-expense">${money(t.outstanding)}</span>`, "", "var(--expense)", "left_to_repay")}
+      ${kpi("EMIs this month", money(t.emi_month), t.due_count ? `<span style="color:var(--warn)">${t.due_count} due to record</span>` : "", "var(--warn)")}
+      ${kpi("Interest left to pay", money(t.interest_left), "", "var(--invest)", "interest_left")}
+      ${kpi("Active loans", String(t.active), closed.length ? `${closed.length} closed` : "", "var(--transfer)")}
     </div>
     <div class="grid grid-main" style="margin-top:16px">
       <section class="panel">
@@ -42,23 +42,22 @@ export async function render() {
         <div class="panel-body" style="padding:14px 0 6px">${loanTable(running)}</div>
       </section>
       <section class="panel">
-        <div class="panel-head"><h2>This month</h2></div>
+        <div class="panel-head"><h2>Due this month ${info("loan_expense")}</h2></div>
         <div class="panel-body">${d.this_month.length ? `<div class="up-list">${d.this_month.map((s) => `
           <div class="up-row">
             <span class="up-date ${s.status === "due" ? "due" : ""}">${esc(dateLabel(s.date))}</span>
             <span><a class="cell-main" href="#/loan/${s.loan_id}" style="color:inherit">${esc(s.name)}</a>
-              <div class="cell-sub">EMI ${s.no} · ${TYPE_LABEL[s.loan_type]}</div></span>
+              <div class="cell-sub">EMI ${s.no} | ${esc(s.type_label || TYPE_LABEL[s.loan_type])}</div></span>
             <span class="right"><span class="amt num">${money(s.amount)}</span><div style="margin-top:3px">${
               s.status === "paid" || s.status === "before" ? `<span class="status-pill on">Paid</span>`
               : firstUnpaid[s.loan_id] === s.no ? `<button class="btn btn-sm ${s.status === "due" ? "btn-primary" : ""}" data-pay="${s.loan_id}">Pay</button>`
               : `<span class="faint small">Upcoming</span>`}</div></span>
           </div>`).join("")}</div>` : `<div class="empty small" style="padding:24px 0">No EMIs this month</div>`}
-          <p class="small faint" style="margin:12px 0 0">Card EMIs are counted as that month's expense. For a personal loan only the interest is an expense: the principal repays money you already spent.</p>
         </div>
       </section>
     </div>
     ${closed.length ? `<details class="panel" style="margin-top:16px"><summary class="panel-pad" style="cursor:pointer"><b>Closed</b>
-      <span class="faint small">· ${closed.length}</span></summary><div style="padding-bottom:6px">${loanTable(closed)}</div></details>` : ""}`;
+      <span class="faint small">| ${closed.length}</span></summary><div style="padding-bottom:6px">${loanTable(closed)}</div></details>` : ""}`;
 
   $$("tr[data-id]").forEach((r) => r.addEventListener("click", () => { location.hash = `#/loan/${r.dataset.id}`; }));
   $("#new-loan").addEventListener("click", async () => { const r = await loanForm(); if (r) location.hash = `#/loan/${r.id}`; });
@@ -74,14 +73,14 @@ function loanTable(items) {
       <p class="small faint">Add a credit card EMI or a personal loan to track its EMIs and what's left.</p></div>`;
   }
   return `<div class="table-wrap"><table>
-    <thead><tr><th>Loan</th><th class="num">EMI</th><th class="num">Outstanding</th><th class="hide-sm" style="width:28%">Repaid</th></tr></thead>
+    <thead><tr><th>Loan</th><th class="num">EMI</th><th class="num">Left to repay</th><th class="hide-sm" style="width:28%">Repaid</th></tr></thead>
     <tbody>${items.map((i) => {
       const s = i.summary;
       return `<tr class="click" data-id="${i.id}">
-        <td><div class="cell-main">${esc(i.name)}</div><div class="cell-sub">${esc(TYPE_LABEL[i.loan_type])}${i.lender ? ` · ${esc(i.lender)}` : ""}${i.account && i.loan_type === "cc_emi" ? ` · ${esc(i.account)}` : ""}</div></td>
+        <td><div class="cell-main">${esc(i.name)}</div><div class="cell-sub">${esc(i.type_label || TYPE_LABEL[i.loan_type])}${(i.account && i.loan_type === "cc_emi") || i.lender ? ` | ${esc(i.account && i.loan_type === "cc_emi" ? i.account : i.lender)}` : ""}</div></td>
         <td class="num">${i.status === "active" ? money(s.emi) : "—"}${s.next ? `<div class="cell-sub">next ${esc(dateLabel(s.next.date))}</div>` : ""}</td>
         <td class="num"><b>${money(s.outstanding)}</b>${s.end_date && i.status === "active" ? `<div class="cell-sub">ends ${esc(dateLabel(s.end_date))}</div>` : ""}</td>
-        <td class="hide-sm">${bar(s.progress_pct)}<div class="cell-sub" style="margin-top:4px">${s.paid_count} of ${s.total_count} EMIs · ${s.progress_pct}%</div></td>
+        <td class="hide-sm">${bar(s.progress_pct)}<div class="cell-sub" style="margin-top:4px">${s.paid_count} of ${s.total_count} EMIs | ${s.progress_pct}%</div></td>
       </tr>`;
     }).join("")}</tbody></table></div>`;
 }
@@ -95,32 +94,71 @@ export async function renderLoan(params, id) {
   drawLoan();
 }
 
+// EMI schedule pages: 12 EMIs (a year) each; prepayments stay on the page of the EMIs around them
+let schedPage = { id: null, n: 0 };
+function schedulePages(rows) {
+  const pages = [[]];
+  let emis = 0;
+  for (const r of rows) {
+    if (r.kind === "emi" && emis === 12) { pages.push([]); emis = 0; }
+    pages[pages.length - 1].push(r);
+    if (r.kind === "emi") emis += 1;
+  }
+  return pages;
+}
+
 function drawLoan() {
   const s = ln.summary, open = ln.status === "active";
   const b = (what, label, primary = false) => `<button class="btn ${primary ? "btn-primary" : ""}" data-do="${what}">${label}</button>`;
-  const rows = s.schedule;
-  const hasEvents = rows.some((r) => r.event_id) ;
+  const pages = schedulePages(s.schedule);
+  if (schedPage.id !== ln.id) {            // a loan opened fresh: start on the year with the next EMI
+    const at = s.next ? pages.findIndex((p) => p.some((r) => r.kind === "emi" && r.no === s.next.no)) : pages.length - 1;
+    schedPage = { id: ln.id, n: Math.max(0, at) };
+  }
+  schedPage.n = Math.min(schedPage.n, pages.length - 1);
+  const rows = pages[schedPage.n];
+  const pg = pages.length > 1 ? `<nav class="pg-mini" aria-label="Schedule pages" style="margin-left:auto">
+      <button type="button" data-sp="${schedPage.n - 1}" ${schedPage.n === 0 ? "disabled" : ""} aria-label="Previous year">‹</button>
+      <span>Year <b>${schedPage.n + 1}</b> of ${pages.length}</span>
+      <button type="button" data-sp="${schedPage.n + 1}" ${schedPage.n === pages.length - 1 ? "disabled" : ""} aria-label="Next year">›</button></nav>` : "";
+  // what used to sit under each tile, now in its ⓘ (worked out for this loan)
+  setHelp("ln_left", "Left to repay", [`<b>${s.progress_pct}%</b> of ${money(ln.principal)} repaid so far.`,
+    "The loan amount you still owe. Future interest isn't included."]);
+  setHelp("ln_emi", "EMI", [s.next ? (s.next.status === "due" ? `<b>Due since ${esc(dateLabel(s.next.date))}</b>: record it when paid.`
+      : `Next EMI on <b>${esc(dateLabel(s.next.date))}</b>.`) : "No EMIs left.",
+    ln.loan_type === "cc_emi" ? "Each EMI is an expense on the card." : "Each EMI repays principal plus the month's interest; only the interest is an expense."]);
+  setHelp("ln_rate", "Interest rate", [ln.rate ? "A year, worked out from the loan amount, EMI and tenure." : "No-cost EMI: no interest.",
+    ln.rate && ln.charges ? `With the charges included, it costs <b>${s.effective_rate}%</b> a year.` : ""]);
+  setHelp("ln_counted", "How the EMIs are counted", ln.loan_type === "cc_emi"
+    ? ["Each EMI is an expense on the card, under the purchase's category.", "The purchase itself isn't counted again.", "Prepayments show in the row where they happened."]
+    : ["The loan reaching your bank is a transfer, not income.", "Each EMI's principal is a transfer back to the loan.", "Only the interest and charges are expenses.",
+       "Prepayments show in the row where they happened."]);
+  setHelp("ln_close_delete", "Close or delete?", ["<b>Close loan:</b> paid off or settled early. Its history is kept.",
+    "<b>Delete:</b> removes the loan and all its entries. Only for mistakes."]);
+  setHelp("ln_ends", "Ends", [`<b>${s.paid_count} of ${s.total_count}</b> EMIs paid.`,
+    "Prepaying can bring the end date forward."]);
   $("#view").innerHTML = `
     <div class="page-head">
       <div class="title-row">${backButton("#/loans", "Loans & EMIs")}<div>
         <h1>${esc(ln.name)}</h1>
-        <div class="sub muted small" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${chip(ln.loan_type)}
-          ${ln.lender ? `<span>${esc(ln.lender)}</span>` : ""}
-          <span>· ${esc(ln.loan_type === "cc_emi" ? `on ${ln.account}, ${ln.category}` : `paid from ${ln.bank_account}`)}</span>
+        <div class="sub title-meta">${chip(ln.loan_type, ln.type_label)}
+          ${ln.lender ? metaItem("bank", ln.lender, "Lender") : ""}
+          ${ln.first_emi_date ? metaItem("date", `First EMI ${dateLabel(ln.first_emi_date)}`) : ""}
           ${open ? "" : `<span class="status-pill on">Closed ${ln.closed_date ? esc(dateLabel(ln.closed_date)) : ""}</span>`}</div>
       </div></div>
-      <div class="toolbar">${hasEvents ? b("undo", "Undo last") : ""}${open ? b("prepay", "Prepay") + b("close", "Close loan") : ""}
-        ${b("edit", "Edit")}${open && s.next ? b("pay", "Pay EMI", true) : ""}</div>
+      <div class="toolbar">${b("edit", "Edit")}${open ? b("close", "Close loan") : ""}<button class="btn btn-ghost btn-danger" data-do="delete">Delete</button>${info("ln_close_delete")}</div>
     </div>
     <div class="grid grid-4">
-      ${kpi("Outstanding", money(s.outstanding), `${bar(s.progress_pct)}<div style="margin-top:5px">${s.progress_pct}% of ${money(ln.principal)} repaid</div>`, "var(--expense)")}
-      ${kpi("EMI", money(s.emi), s.next ? `next ${s.next.status === "due" ? `<b style="color:var(--warn)">due</b>` : ""} ${esc(dateLabel(s.next.date))}` : "no EMIs left", "var(--warn)")}
-      ${kpi("Interest rate", ln.rate ? `${ln.rate}%` : "0%", ln.rate ? (ln.charges ? `${s.effective_rate}% a year incl. charges` : "a year, worked out from the EMI") : "no-cost EMI", "var(--invest)")}
-      ${kpi("Ends", s.end_date ? esc(dateLabel(s.end_date)) : "—", `${s.paid_count} of ${s.total_count} EMIs paid`, "var(--transfer)")}
+      ${kpi("Left to repay", money(s.outstanding), bar(s.progress_pct), "var(--expense)", "ln_left")}
+      ${kpi("EMI", money(s.emi), s.next?.status === "due" ? `<b style="color:var(--warn)">Due since ${esc(dateLabel(s.next.date))}</b>` : "", "var(--warn)", "ln_emi")}
+      ${kpi("Interest rate", ln.rate ? `${ln.rate}%` : "0%", "", "var(--invest)", "ln_rate")}
+      ${kpi("Ends", s.end_date ? esc(dateLabel(s.end_date)) : "—", "", "var(--transfer)", "ln_ends")}
     </div>
+    ${open ? `<section class="panel rec-bar" style="margin-top:16px"><div class="act-grp"><span class="act-lbl">Payments</span>
+      <div class="act-btns">${open && s.next ? b("pay", "Pay EMI", true) : ""}${open ? b("prepay", "Prepay") : ""}</div></div></section>` : ""}
     <div class="grid grid-main" style="margin-top:16px">
       <section class="panel">
-        <div class="panel-head"><h2>EMI schedule</h2><span class="small faint">prepayments shown where they happened</span></div>
+        <div class="panel-head"><h2>EMI schedule ${info("ln_counted")}</h2>${pg}</div>
         <div class="panel-body" style="padding:14px 0 6px"><div class="table-wrap"><table>
           <thead><tr><th>#</th><th>Date</th><th class="num">EMI</th><th class="num hide-sm">Principal</th><th class="num hide-sm">Interest</th><th class="num">Balance</th><th></th></tr></thead>
           <tbody>${rows.map((r) => r.kind === "emi" ? `<tr>
@@ -142,18 +180,15 @@ function drawLoan() {
           <dt>Loan amount</dt><dd>${money(ln.principal)}</dd>
           <dt>Tenure</dt><dd>${ln.tenure_months} months</dd>
           <dt>Total interest</dt><dd>${money(s.total_interest)}</dd>
-          <dt>…paid so far</dt><dd>${money(s.interest_paid)}</dd>
-          <dt>…left to pay</dt><dd>${money(s.interest_left)}</dd>
+          <dt>Interest paid so far</dt><dd>${money(s.interest_paid)}</dd>
+          <dt>Interest left to pay</dt><dd>${money(s.interest_left)}</dd>
           <dt>Processing charges</dt><dd>${money(ln.charges)}</dd>
           ${s.prepaid ? `<dt>Prepaid</dt><dd>${money(s.prepaid)}</dd>` : ""}
         </dl></div></section>
-        <section class="panel panel-pad small muted">${ln.loan_type === "cc_emi"
-          ? "Each EMI is recorded as an expense on the card, under the purchase's category. The purchase itself isn't counted again."
-          : "The loan amount reached your bank as a transfer (not income). Each EMI's principal is a transfer back to the loan; only the interest and charges are expenses."}
-          ${ln.notes ? `<p style="margin:10px 0 0">${esc(ln.notes)}</p>` : ""}
-          <p style="margin:12px 0 0"><button class="btn btn-sm btn-danger" data-do="delete">Delete this loan</button></p></section>
+        ${ln.notes ? `<section class="panel panel-pad small"><div class="kpi-label" style="margin-bottom:6px">Notes</div>${esc(ln.notes)}</section>` : ""}
       </div>
     </div>`;
+  $$("[data-sp]").forEach((b) => b.addEventListener("click", () => { schedPage.n = +b.dataset.sp; drawLoan(); }));
   wireLoan();
 }
 
@@ -183,7 +218,7 @@ async function linkMode() {
 export async function payModal(l) {
   const n = l.summary.next;
   const p = modal({
-    title: `Pay EMI ${n.no} · ${l.name}`,
+    title: `Pay EMI ${n.no} | ${l.name}`,
     body: fld("*Date", `<input type="date" name="date" value="${esc(n.date <= todayISO() ? n.date : todayISO())}">`)
       + fld("*Amount (₹)", `<input name="amount" inputmode="decimal" value="${n.amount}">`,
         l.loan_type === "cc_emi" ? `Expense on ${esc(l.account)}` : `Principal ${money(n.principal)} (transfer) + interest ${money(n.interest)} (expense)`)
@@ -222,11 +257,6 @@ function wireLoan() {
     });
     linkMode();
   });
-  on("undo", async () => {
-    if (await confirmDialog("Undo the last payment?", "The latest EMI, prepayment or closure and its transactions will be removed.", "Undo")) {
-      refresh(api.loanPost(ln.id, "undo"), "Undone");
-    }
-  });
   on("edit", async () => { const r = await loanForm(ln); if (r) { ln = r; drawLoan(); } });
   on("delete", async () => {
     if (await confirmDialog(`Delete ${ln.name}?`, "The loan and every transaction this app recorded for it (EMIs, charges, loan received) will be deleted.")) {
@@ -257,22 +287,34 @@ export async function loanForm(l, preset = {}) {
   const cats = M.categories.filter((c) => c.kind === "expense" && !c.is_system && c.active);
   const v = l ? { ...l, principal: l.principal, emi: l.emi_original } : { loan_type: "cc_emi", first_emi_date: todayISO(), paid_before: 0, name: preset.name || "" };
   const val = (k) => esc(v[k] ?? "");
+  const own = l ? [] : await api.loanTypes().catch(() => []);
+  // the Type list: built-in kinds, then your own types (value "t:<id>"), then "+ New type…"
+  const typeOpts = l
+    ? `<option>${esc(l.type_label)}</option>`
+    : `<optgroup label="Built in">${Object.entries(TYPE_LABEL).map(([id, name]) => `<option value="${id}" ${id === v.loan_type ? "selected" : ""}>${name}</option>`).join("")}</optgroup>
+       ${own.length ? `<optgroup label="Your types">${own.map((t) => `<option value="t:${t.id}">${esc(t.name)}</option>`).join("")}</optgroup>` : ""}
+       <option value="__new">+ New type…</option>`;
+  const worksLike = (val) => val.startsWith("t:") ? own.find((t) => `t:${t.id}` === val)?.works_like || "personal"
+    : val === "__new" ? $("#ln-nt-like", $("#modal-root")).value : l ? l.loan_type : val;
   const gadgets = cats.find((c) => /electronic/i.test(c.name))?.id;
   const body = `<div class="form-grid">
-      <div class="field full"><label class="req">Kind</label><select name="loan_type" id="ln-type" ${l ? "disabled" : ""}>${options(
-        Object.entries(TYPE_LABEL).map(([id, name]) => ({ id, name })), v.loan_type)}</select></div>
+      <div class="field full"><label class="req">Type</label><select name="loan_type" id="ln-type" ${l ? "disabled" : ""}>${typeOpts}</select></div>
+      <div class="field full new-type hidden" id="ln-nt"><div class="new-type-in">
+        <div class="field"><label class="req">New Type Name</label><input id="ln-nt-name" maxlength="40" placeholder="e.g. Home loan"></div>
+        <div class="field"><label class="req">Works Like${info("loan_works_like")}</label><select id="ln-nt-like">
+          <option value="personal">Loan</option><option value="cc_emi">Card EMI</option></select></div>
+      </div></div>
       <div class="field"><label class="req">Name</label><input name="name" required maxlength="80" id="ln-name" value="${val("name")}"></div>
       <div class="field"><label>Bank / Lender</label><input name="lender" maxlength="80" value="${val("lender")}"></div>
       <div class="field" data-for="cc_emi"><label class="req">Credit Card</label><select name="account_id">${options(cards, v.account_id)}</select></div>
-      <div class="field" data-for="cc_emi"><label class="req">What You Bought</label><select name="category_id">${options(cats, v.category_id ?? gadgets)}</select></div>
+      <div class="field" data-for="cc_emi"><label class="req">Purpose</label><select name="category_id">${options(cats, v.category_id ?? gadgets)}</select></div>
       <div class="field full" data-for="personal other"><label class="req">Loan Credited To &amp; EMIs Paid From</label><select name="bank_account_id">${options(banks, v.bank_account_id)}</select></div>
       <div class="field"><label class="req">Total Loan Amount (₹)</label><input name="principal" inputmode="decimal" required value="${val("principal")}" data-calc></div>
       <div class="field"><label class="req">EMI (₹)</label><input name="emi" inputmode="decimal" required value="${val("emi")}" data-calc></div>
       <div class="field"><label class="req">Tenure (months)</label><input name="tenure_months" inputmode="numeric" required value="${val("tenure_months")}" data-calc></div>
       <div class="field"><label>Loan Charges (₹)</label><input name="charges" inputmode="decimal" value="${val("charges")}" placeholder="processing fee + GST"></div>
       <div class="field"><label class="req">First EMI Date</label><input type="date" name="first_emi_date" required value="${val("first_emi_date")}"></div>
-      <div class="field"><label>EMIs Already Paid</label><input name="paid_before" inputmode="numeric" value="${val("paid_before")}">
-        <div class="hint">For a loan that's already running: EMIs paid before you started tracking it here</div></div>
+      <div class="field"><label>EMIs Already Paid${info("emis_paid_before")}</label><input name="paid_before" inputmode="numeric" value="${val("paid_before")}" placeholder="0"></div>
       ${l ? "" : `<div class="field full" id="ln-start"><label>Loan Taken On</label><input type="date" name="start_date" value="${todayISO()}">
         <div class="hint" data-hint></div></div>`}
       <div class="field full"><label>Notes</label><input name="notes" maxlength="300" value="${val("notes")}"></div>
@@ -281,6 +323,17 @@ export async function loanForm(l, preset = {}) {
   const p = modal({
     title: l ? `Edit ${l.name}` : "New loan or EMI", body, wide: true, submitLabel: l ? "Save" : "Add",
     onSubmit: async (vals) => {
+      if (!l) {
+        const t = $("#ln-type").value;
+        if (t === "__new") {           // make the new type first, then the loan with it
+          let nt;
+          try { nt = await api.addLoanType({ name: $("#ln-nt-name").value, works_like: $("#ln-nt-like").value }); }
+          catch (e) { $("#ln-nt-name").focus(); throw new Error(e.message); }   // about the type's name, not the loan's
+          vals.type_id = nt.id; vals.loan_type = nt.works_like;
+        } else if (t.startsWith("t:")) {
+          vals.type_id = +t.slice(2); vals.loan_type = worksLike(t);
+        }
+      }
       const r = l ? await api.updateLoan(l.id, vals) : await api.createLoan(vals);
       invalidateMasters();
       toast(l ? "Saved" : "Loan added");
@@ -290,7 +343,9 @@ export async function loanForm(l, preset = {}) {
   const root = $("#modal-root");
   const num = (n) => parseFloat(String($(`[name=${n}]`, root).value).replace(/,/g, "")) || 0;
   const sync = () => {
-    const t = $("#ln-type").value;
+    const sel = $("#ln-type").value;
+    $("#ln-nt").classList.toggle("hidden", sel !== "__new");
+    const t = worksLike(sel);
     $$("[data-for]", root).forEach((el) => {
       const on = el.dataset.for.split(" ").includes(t);
       el.classList.toggle("hidden", !on);
@@ -313,10 +368,11 @@ export async function loanForm(l, preset = {}) {
     else {
       calc.className = "callout full";
       calc.innerHTML = r === 0 ? `<strong>No-cost EMI</strong>: ${money(E * N)} in total, no interest.`
-        : `Interest rate ≈ <strong>${r.toFixed(2)}% a year</strong> · total interest ${money(Math.max(0, E * N - P))} over ${N} months`;
+        : `Interest rate ≈ <strong>${r.toFixed(2)}% a year</strong> | total interest ${money(Math.max(0, E * N - P))} over ${N} months`;
     }
   };
-  $("#ln-type").addEventListener("change", sync);
+  $("#ln-type").addEventListener("change", () => { sync(); if ($("#ln-type").value === "__new") $("#ln-nt-name").focus(); });
+  $("#ln-nt-like").addEventListener("change", sync);
   $$("input", root).forEach((i) => i.addEventListener("input", sync));
   sync();
   return p;

@@ -208,7 +208,7 @@ Master data is never hard-deleted once used; it is deactivated so history stays 
 
 ## Safety
 
-- **Backup to a folder** (Settings → Backup & export): a full path you type (pen drive, other disk); a dated copy is
+- **Backup to a folder** (Settings → Backups): a full path you type (pen drive, other disk); a dated copy is
   written with SQLite's backup API, never overwriting an existing file; the folder is remembered.
 - **Restore** from an uploaded .db file or from the automatic backups list: needs your password; the file must be an
   undamaged database from this app and not from a newer version; current data is saved first (`pre-restore`),
@@ -222,7 +222,8 @@ Master data is never hard-deleted once used; it is deactivated so history stays 
   if mail settings are filled in.
 
 - Migrations (`backend/migrations/NNN_*.sql`) run automatically on start; a backup is taken first.
-- Automatic backup once a week (and before upgrades and restores); the backups folder keeps only the newest 10 files.
+- Automatic backup once a day at the first login, only if the data changed (a fingerprint of everything except login details);
+  kept per kind: 7 daily, 8 weekly, 3 pre-migration, 3 pre-restore, 3 manual.
 - Server binds to 127.0.0.1 only, and refuses any request whose Host header isn't 127.0.0.1 / localhost / ::1
   (blocks "DNS rebinding", where a web page points its own name at 127.0.0.1 to talk to the app). With
   --allow-network the --host name is allowed too.

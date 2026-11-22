@@ -113,32 +113,53 @@ class BackupTest(unittest.TestCase):
         con.execute("INSERT INTO schema_version (version, name) VALUES (999, 'future.sql')")
         con.commit(); con.close()
         self.assertEqual(up(_read(newer)).status_code, 400)          # from a newer app version
+        # a real backup with something this app never creates added to it: refused
+        for i, extra in enumerate(("CREATE TRIGGER t1 AFTER INSERT ON entries BEGIN DELETE FROM accounts; END",
+                                   "CREATE VIEW v1 AS SELECT * FROM entries", "CREATE TABLE stranger (x)")):
+            bad = self.c.post("/api/system/backup-to", json={"path": os.path.join(self.out, f"bad{i}.db")}).get_json()["file"]
+            con = sqlite3.connect(bad); con.execute(extra); con.commit(); con.close()
+            r = up(_read(bad))
+            self.assertEqual(r.status_code, 400, extra)
+            self.assertIn("changed outside this app", r.get_json()["error"])
+            os.remove(bad)
         for name in ("../data/test.db", "/etc/passwd", "expenses_x.db"):
             r = self.c.post("/api/system/restore-backup", json={"file": name, "password": PASSWORD})
             self.assertEqual(r.status_code, 404, name)
         self.assertEqual(self.c.get("/api/entries").status_code, 200)            # still logged in, data intact
 
 
-    def test_weekly_auto_backup_and_keep_10(self):
+    def test_daily_backup_weekly_and_keep_per_kind(self):
+        from datetime import date, timedelta
         from backend import db
-        bdir = os.path.join(self.tmp.name, "wk")
+        bdir = os.path.join(self.tmp.name, "auto")
         dbp = self.app.config["DB_PATH"]
-        first = db.weekly_backup(dbp, bdir)
-        self.assertTrue(first and first.endswith("_auto.db"))
-        self.assertIsNone(db.weekly_backup(dbp, bdir))                 # not again within the week
-        old = os.path.getmtime(first) - 8 * 86400
-        os.utime(first, (old, old))
-        self.assertIsNotNone(db.weekly_backup(dbp, bdir))              # a week later: yes
-        # many manual backups: only the newest 10 files stay
-        for i in range(14):
-            name = os.path.join(bdir, f"expenses_2020-01-{i + 1:02d}_000000_manual.db")
-            open(name, "wb").close()
+        d0 = date(2026, 11, 2)
+        first = db.daily_backup(dbp, bdir, today=d0)
+        self.assertTrue(first.endswith("_weekly.db"))                          # the first one starts the weekly line
+        self.assertIsNone(db.daily_backup(dbp, bdir, today=d0))               # once a day
+        self.assertIsNone(db.daily_backup(dbp, bdir, today=d0 + timedelta(1)))   # nothing changed: no copy
+        # a login alone (users table) is not a change
         with self.app.app_context():
-            newest = db.backup(db.get_db(), bdir, label="manual")
+            db.get_db().execute("UPDATE users SET last_login_at = '2030-01-01'"); db.get_db().commit()
+        self.assertIsNone(db.daily_backup(dbp, bdir, today=d0 + timedelta(2)))
+        # your data changes each day: a daily one each day, a weekly one every 7 days
+        made = []
+        for i in range(3, 30):
+            self.c.post("/api/masters/payment_modes", json={"name": f"Mode {i}"})
+            made.append(os.path.basename(db.daily_backup(dbp, bdir, today=d0 + timedelta(i))))
+        self.assertTrue(made[0].endswith("_daily.db"))
+        self.assertEqual(sum(m.endswith("_weekly.db") for m in made), 4)        # days 7, 14, 21 and 28
         files = sorted(os.listdir(bdir))
-        self.assertEqual(len(files), 10)
-        self.assertIn(os.path.basename(newest), files)
-        self.assertNotIn("expenses_2020-01-01_000000_manual.db", files)  # oldest went first
+        kinds = [f.rsplit("_", 1)[-1] for f in files if f.endswith(".db")]
+        self.assertEqual(kinds.count("daily.db"), 7)                         # last 7 dailies kept
+        self.assertEqual(kinds.count("weekly.db"), 5)                        # all 5 weeklies (up to 8 are kept)
+        # safety backups have their own limit and never push the others out
+        for i in range(5):
+            open(os.path.join(bdir, f"expenses_2020-01-0{i + 1}_000000_pre-migration.db"), "wb").close()
+        with self.app.app_context():
+            db.backup(db.get_db(), bdir, label="manual")
+        kinds = [f.rsplit("_", 1)[-1] for f in sorted(os.listdir(bdir)) if f.endswith(".db")]
+        self.assertEqual((kinds.count("pre-migration.db"), kinds.count("daily.db"), kinds.count("weekly.db")), (3, 7, 5))
 
 if __name__ == "__main__":
     unittest.main()

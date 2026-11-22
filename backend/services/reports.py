@@ -211,11 +211,18 @@ def _top_with_others(items, n=6):
                          "count": sum(i["count"] for i in rest), "share": round(sum(i["share"] for i in rest), 1)}]
 
 
+def _last_12_to_today():
+    """The dashboard chart always shows the 12 months up to this month, whichever month is picked above it."""
+    cur = date.today().strftime("%Y-%m")
+    first, _ = month_bounds(shift_month(cur, -11))
+    _, last = month_bounds(cur)
+    return first, last
+
+
 def dashboard(month):
     start, end = month_bounds(month)
     prev = shift_month(month, -1)
     pstart, pend = month_bounds(prev)
-    year_start, _ = month_bounds(shift_month(month, -11))
     bal = balances()
     cash_like = [b for b in bal if b["kind"] in ("bank", "cash")]
     wallets = [b for b in bal if b["kind"] == "wallet"]
@@ -251,7 +258,7 @@ def dashboard(month):
         "summary": summary(start, end),
         "previous": summary(pstart, pend),
         "top_categories": _top_with_others(category_totals("expense", start, end)["items"]),
-        "last_12_months": monthly(year_start, end),
+        "last_12_months": monthly(*_last_12_to_today()),
         "balances": bal,
         "loans": loan_items,
         "totals": {

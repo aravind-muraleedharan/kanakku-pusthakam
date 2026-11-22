@@ -88,7 +88,7 @@ def create_app(overrides=None):
     _private_files(app)
     db.migrate(app.config["DB_PATH"], app.config["BACKUP_DIR"])
     if not app.config.get("TESTING"):
-        db.weekly_backup(app.config["DB_PATH"], app.config["BACKUP_DIR"])
+        db.daily_backup(app.config["DB_PATH"], app.config["BACKUP_DIR"])
 
     app.teardown_appcontext(db.close_db)
     register_blueprints(app)

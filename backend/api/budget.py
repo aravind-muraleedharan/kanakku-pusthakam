@@ -1,8 +1,9 @@
 """/api/budget - the Monthly Budget: your own income and expense items, amounts per month, payments ticked as done."""
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request
 
 from ..errors import ApiError
 from ..services import budget as svc
+from ..services import budget_xlsx
 
 bp = Blueprint("budget", __name__)
 
@@ -21,6 +22,16 @@ def _sheet(status=200):
 @bp.get("/budget")
 def sheet():
     return _sheet()
+
+
+@bp.get("/budget/export.xlsx")
+def export_xlsx():
+    """The budget as a styled Excel file: every month that has entries, in one sheet."""
+    data, name = budget_xlsx.build()
+    if data is None:
+        raise ApiError("Nothing to export yet: add amounts to a month first", 404)
+    return Response(data, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @bp.post("/budget/items")

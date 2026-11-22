@@ -99,10 +99,12 @@ def _flows(account_id, opening_date):
     """Entries that moved money in/out of this investment (on/after its opening date)."""
     return rows(
         """SELECT e.id, e.date, e.type, e.amount, e.principal_amount, e.note,
-                  e.from_account_id, e.to_account_id, fa.name AS from_account, ta.name AS to_account
+                  e.from_account_id, e.to_account_id, fa.name AS from_account, ta.name AS to_account,
+                  COALESCE(e.payment_mode_other, pm.name) AS payment_mode
            FROM entries e
            LEFT JOIN accounts fa ON fa.id = e.from_account_id
            LEFT JOIN accounts ta ON ta.id = e.to_account_id
+           LEFT JOIN payment_modes pm ON pm.id = e.payment_mode_id
            WHERE (e.to_account_id = :a OR e.from_account_id = :a)
              AND (:od IS NULL OR e.date >= :od)
            ORDER BY e.date, e.id""",
@@ -251,7 +253,8 @@ def _summary_rd(acc, d, flows, today):
             value += f["amount"] * (1 + r / 400) ** (max(0, months_between(_d(f["date"]), today)) / 3)
     s["value"] = to_rupees(round(value))
     s["gain"] = round(s["value"] - s["invested"], 2) if not closed else to_rupees(received - principal_out)
-    s["deposits"] = [{"id": f["id"], "date": f["date"], "amount": to_rupees(f["amount"]), "from_account": f["from_account"]}
+    s["deposits"] = [{"id": f["id"], "date": f["date"], "amount": to_rupees(f["amount"]), "from_account": f["from_account"],
+                      "payment_mode": f["payment_mode"], "note": f["note"]}
                      for f in reversed(deposits)]
     return s
 
@@ -293,7 +296,8 @@ def _summary_ppf(acc, d, flows, today):
         "interest_credited": to_rupees(credited), "interest_accrued": to_rupees(round(accrued)),
         "this_fy_deposits": to_rupees(this_fy), "fy_limit": 150000, "fy_label": f"FY {fy}-{str(fy + 1)[2:]}",
         "over_limit": this_fy > 15000000, "closed": False,
-        "deposits": [{"id": f["id"], "date": f["date"], "amount": to_rupees(f["amount"]), "from_account": f["from_account"]}
+        "deposits": [{"id": f["id"], "date": f["date"], "amount": to_rupees(f["amount"]), "from_account": f["from_account"],
+                      "payment_mode": f["payment_mode"], "note": f["note"]}
                      for f in reversed(deposits)],
     }
 
@@ -385,11 +389,19 @@ def summary(acc, d=None, today=None):
                 s["pure_grams"] = round(s["pure_grams"] + g * 0.916, 3)
     else:
         s = _summary_basic(acc, d, flows)
+        if t == "chitty":
+            # after the kuri, what's paid in can be less than what you got: you still owe the rest as instalments
+            added, _, _, received = _money_in_out(acc, flows)
+            s["closed"] = not acc["active"]
+            s["paid_in"], s["received"] = to_rupees(added), to_rupees(received)
+            s["to_pay"] = to_rupees(max(0, received - added)) if acc["active"] else 0
+            s["kuri"] = next(({"id": f["id"], "date": f["date"], "amount": to_rupees(f["amount"])} for f in flows
+                              if f["type"] == "redeem" and f["from_account_id"] == acc["id"]), None)
         if t == "chitty" and d["term_months"] and d["amount"] and d["start_date"]:
             deposits = [f for f in flows if f["type"] == "invest" and f["to_account_id"] == acc["id"]]
             s.update(_scheme_progress(d, deposits, today, closed=not acc["active"] or s["closed"]))
             s["deposits"] = [{"id": f["id"], "date": f["date"], "amount": to_rupees(f["amount"]),
-                              "from_account": f["from_account"]} for f in reversed(deposits)]
+                              "from_account": f["from_account"], "payment_mode": f["payment_mode"], "note": f["note"]} for f in reversed(deposits)]
     if t not in ("share", "other", "chitty"):          # estimates: whole rupees
         for k in ("value", "gain", "maturity_amount"):
             if isinstance(s.get(k), (int, float)):
@@ -422,6 +434,15 @@ def _where(d):
 
 # ---------------------------------------------------------------- overview
 
+def _first_date(acc, d):
+    """When the money first went in: the start date, the opening balance's date, or the first payment into it."""
+    first = one("SELECT MIN(date) AS d FROM entries WHERE to_account_id = ? AND type IN ('invest', 'transfer')",
+                (acc["id"],))["d"]
+    bought = one("SELECT MIN(date) AS d FROM metal_items WHERE account_id = ?", (acc["id"],))["d"]   # gold and silver
+    dates = [x for x in (d["start_date"], acc["opening_date"] if acc["opening_balance"] else None, first, bought) if x]
+    return min(dates) if dates else None
+
+
 def overview(today=None):
     today = today or date.today()
     accs = rows("""SELECT a.*, COALESCE(d.inv_type, 'other') AS inv_type FROM accounts a
@@ -429,7 +450,7 @@ def overview(today=None):
                    WHERE a.kind = 'investment' ORDER BY a.sort_order, a.name""")
     types = {t["id"]: t for t in types_svc.list_types()}
     items, by_type, upcoming = [], {}, []
-    soon = add_months(today, 3).isoformat()
+    soon = add_months(today, 1).isoformat()          # "Upcoming dues & payouts" looks one month ahead
     for a in accs:
         d = details(a["id"])
         s = summary(a, d, today)
@@ -437,7 +458,7 @@ def overview(today=None):
         item = {"id": a["id"], "name": a["name"], "type": ty["id"], "type_label": ty["name"], "color": ty["color"],
                 "works_like": d["inv_type"], "institution": _where(d), "invested": s["invested"], "value": s["value"],
                 "gain": s.get("gain"), "closed": s.get("closed", False) or not a["active"],
-                "maturity_date": d["maturity_date"], "active": bool(a["active"]),
+                "maturity_date": d["maturity_date"], "active": bool(a["active"]), "since": _first_date(a, d),
                 "rate": d["rate"] if d["inv_type"] in ("fd", "rd", "ppf") else None,
                 "instalment": s.get("instalment") if d["inv_type"] in ("rd", "gold", "chitty") else None,
                 "next_due": s.get("next_due") if d["inv_type"] in ("rd", "gold", "chitty") and a["active"]
@@ -833,12 +854,25 @@ def close(account_id, p):
         entry_id = entries_svc.create({"type": "redeem", "date": when, "amount": str(to_rupees(amount)),
                                        "principal_amount": str(to_rupees(principal)), "from_account_id": acc["id"],
                                        "to_account_id": to_acc, "note": note})["id"]
+    if t == "chitty":
+        _settle_chit(acc["id"])
     conn = get_db()
     conn.execute("UPDATE investment_details SET closed_on = ?, closed_amount = ?, close_entry_id = ?, close_note = ? "
                  "WHERE account_id = ?", (when, amount, entry_id, note, account_id))
     conn.execute("UPDATE accounts SET active = 0 WHERE id = ?", (account_id,))
     conn.commit()
     return get(account_id)
+
+
+def _settle_chit(account_id):
+    """Chit ends: whatever principal is still open (paid in minus taken out) moves onto the kuri entry, so its
+    gain becomes everything received minus everything paid - a gain if you took the kuri late, a loss if early."""
+    rest = entries_svc.open_principal(account_id)
+    kuri = one("SELECT id, amount, principal_amount FROM entries WHERE type = 'redeem' AND from_account_id = ? "
+               "ORDER BY date, id LIMIT 1", (account_id,))
+    if rest and kuri:
+        get_db().execute("UPDATE entries SET principal_amount = ? WHERE id = ?",
+                         (max(0, kuri["principal_amount"] + rest), kuri["id"]))
 
 
 def undo_close(account_id):
@@ -851,6 +885,9 @@ def undo_close(account_id):
         conn.execute("UPDATE investment_details SET close_entry_id = NULL WHERE account_id = ?", (account_id,))  # let it go
         if one("SELECT id FROM entries WHERE id = ?", (d["close_entry_id"],)):
             entries_svc.delete(d["close_entry_id"])
+    if d["inv_type"] == "chitty":       # the kuri goes back to "no income yet"
+        conn.execute("UPDATE entries SET principal_amount = amount WHERE type = 'redeem' AND from_account_id = ?",
+                     (account_id,))
     conn.execute("UPDATE metal_items SET sold_date = NULL, sold_amount = NULL, sold_on_close = 0 "
                  "WHERE account_id = ? AND sold_on_close = 1", (account_id,))
     conn.execute("UPDATE investment_details SET closed_on = NULL, closed_amount = NULL, close_entry_id = NULL, "
@@ -931,7 +968,9 @@ def redeem(account_id, p):
     if acc["inv_type"] == "share":
         raise ApiError("Stocks accounts use 'Withdraw' (never counted as income)")
     principal = p.get("principal_amount")
-    if principal in (None, ""):
+    if acc["inv_type"] == "chitty":
+        principal = p.get("amount")       # the kuri: no income now; the real gain / loss is worked out on Close
+    elif principal in (None, ""):
         principal = to_rupees(entries_svc.open_principal(acc["id"]))
     return entries_svc.create({"type": "redeem", "date": p.get("date"), "amount": p.get("amount"),
                                "principal_amount": str(principal), "from_account_id": acc["id"],
@@ -1030,7 +1069,7 @@ def add_dividend(account_id, p):
         cat = one("SELECT id FROM categories WHERE name = 'Dividends' AND kind = 'income'")
         e = entries_svc.create({"type": "income", "date": when, "amount": str(to_rupees(amount)),
                                 "category_id": cat["id"] if cat else None, "to_account_id": to["id"],
-                                "note": " · ".join(x for x in ("Dividend", stock, note) if x)})
+                                "note": " | ".join(x for x in ("Dividend", stock, note) if x)})
         entry_id = e["id"]
         get_db().execute("UPDATE entries SET related_account_id = ? WHERE id = ?", (acc["id"], entry_id))
     get_db().execute("INSERT INTO share_dividends (account_id, date, stock, amount, note, entry_id) VALUES (?, ?, ?, ?, ?, ?)",
@@ -1088,7 +1127,7 @@ def add_item(account_id, p):
                                 "from_account_id": p["paid_from_account_id"], "to_account_id": acc["id"],
                                 "payment_mode_id": p.get("payment_mode_id"),
                                 "note": f"Bought {grams:g} g" + (f" ({text('bill_name', 80)})" if p.get("bill_name") else "")
-                                        + (f" · {text('note', 200)}" if p.get("note") else "")})
+                                        + (f" | {text('note', 200)}" if p.get("note") else "")})
         entry_id = e["id"]
     get_db().execute("""INSERT INTO metal_items (account_id, date, description, grams, purity, total_paid, making_charges,
                         rate, entry_id, note, bill_name, doc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",

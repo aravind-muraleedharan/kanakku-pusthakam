@@ -10,6 +10,9 @@ export const typeColor = (c) => `var(--t-${c || "other"})`;
 export const typeChip = (label, color) => `<span class="type-chip"><i style="background:${typeColor(color)}"></i>${esc(label)}</span>`;
 export const gainCls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
 export const pct = (v) => (v === null || v === undefined ? "" : `${v > 0 ? "+" : ""}${Number(v).toFixed(2)}%`);
+/** gain % as a coloured pill: green ▲ for a gain, red ▼ for a loss (same look as the Dashboard) */
+export const gainPill = (v) => (v === null || v === undefined ? "—"
+  : `<span class="delta-pill ${v < 0 ? "up" : "down"}">${v < 0 ? "▼" : "▲"} ${Math.abs(Number(v)).toFixed(2)}%</span>`);
 
 export async function render() {
   const d = await api.investments();
@@ -23,52 +26,70 @@ export async function render() {
     <div class="page-head">
       <div>
         <h1>Investments</h1>
-        <div class="sub muted small">${open.length} running · value as on ${dateLabel(todayISO())}</div>
       </div>
       <div class="toolbar">
         <button class="btn btn-primary" id="new-inv">+ Investment</button>
       </div>
     </div>
 
-    <div class="grid grid-4">
-      ${kpi("Current value", money(t.value), "var(--net)", "estimated, as on today", "current_value")}
-      ${kpi("Invested", money(t.invested), "var(--invest)", "principal amount")}
-      ${kpi("Gain", `<span class="${gainCls(t.gain)}">${money(t.gain, { sign: true })}</span>`, "var(--income)",
-            gainPct === null ? "—" : `${pct(gainPct)} on what's invested`)}
-      ${kpi("Coming up", String(d.upcoming.length), "var(--warn)", "in the next 3 months")}
+    <div class="grid grid-3">
+      ${kpi("Invested", money(t.invested), "var(--invest)", "")}
+      ${kpi("Gain", `<span class="${gainCls(t.gain)}">${money(t.gain, { sign: true })}</span>${gainPct === null ? "" : gainPill(gainPct)}`,
+            "var(--income)", "", "gain_pct")}
+      ${kpi("Current value", money(t.value), "var(--net)", "", "current_value")}
     </div>
 
     <div class="grid grid-main" style="margin-top:16px">
       <section class="panel">
-        <div class="panel-head"><h2>By type</h2><span class="small faint">current value</span></div>
+        <div class="panel-head"><h2>Portfolio</h2><span class="small inv-hint">Click a type to see its investments</span></div>
         <div class="panel-body" id="inv-donut"></div>
       </section>
       <section class="panel">
-        <div class="panel-head"><h2>Coming up</h2></div>
+        <div class="panel-head"><h2>Upcoming dues &amp; payouts</h2><span class="small faint">next 30 days</span></div>
         <div class="panel-body">${upcoming(d.upcoming)}</div>
       </section>
     </div>
 
-    <section class="panel" style="margin-top:16px">
-      <div class="panel-head"><h2>All investments</h2></div>
-      <div class="panel-body" style="padding:10px 0 4px">${table(open, d.by_type)}</div>
-    </section>
+    <section class="panel" style="margin-top:16px" id="inv-detail"></section>
     ${closed.length ? `<details class="panel" style="margin-top:16px">
-      <summary class="panel-pad" style="cursor:pointer"><b>Closed</b> <span class="faint small">· ${closed.length}</span></summary>
-      <div style="padding-bottom:6px">${table(closed)}</div></details>` : ""}
-    <p class="small faint" style="margin:14px 2px 0">Gold coins and silver bars are shown at what you paid; the gain is counted
-      when you sell. Stocks accounts show funds + profit from your journal, not market prices. Other investments are shown
-      at what you put in until you type in their current value.</p>`;
+      <summary class="panel-pad" style="cursor:pointer"><b>Closed</b> <span class="faint small">| ${closed.length}</span></summary>
+      <div style="padding-bottom:6px">${table(closed)}</div></details>` : ""}`;
 
   donutChart($("#inv-donut"), d.by_type.map((x) => ({
     label: x.label, value: x.value, color: typeColor(x.color),
-    sub: `${x.count} · invested ${money(x.invested)}`, type: x.type,
-  })), { centerLabel: "Total value", onClick: (x) => $(`#grp-${x.type}`)?.scrollIntoView({ behavior: "smooth", block: "center" }) });
+    sub: `${x.count} investment${x.count === 1 ? "" : "s"} | ${money(x.invested)} invested`, type: x.type,
+  })), { centerLabel: "Total value", onClick: (x) => showDetail(String(x.type) === shown ? null : String(x.type), true) });
 
-  $$(".inv-grp-head").forEach((h) => h.addEventListener("click", () => {
-    const open = h.getAttribute("aria-expanded") !== "false";
-    h.setAttribute("aria-expanded", String(!open));
-    h.parentElement.classList.toggle("collapsed", open);
+  // Only "Portfolio" shows at first; clicking a type opens its investments below (click it again, or ✕, to close).
+  // The open type is kept while you move around the app (this browser tab only).
+  let shown = null;
+  try { shown = sessionStorage.getItem("inv-detail"); } catch { /* not kept */ }
+  if (shown && !open.some((i) => String(i.type) === shown)) shown = null;
+  function showDetail(sel, scroll = false) {
+    shown = sel;
+    try { sel ? sessionStorage.setItem("inv-detail", sel) : sessionStorage.removeItem("inv-detail"); } catch { /* not kept */ }
+    const box = $("#inv-detail");
+    $$("#inv-donut .dl-row").forEach((r, idx) => r.classList.toggle("sel", String(d.by_type[idx]?.type) === sel));
+    const ty = sel && d.by_type.find((x) => String(x.type) === sel);
+    box.hidden = !ty;                         // nothing picked: only the Portfolio panel's hint shows
+    if (!ty) { box.innerHTML = ""; return; }
+    const list = open.filter((i) => String(i.type) === sel);
+    const n = list.length;
+    const value = list.reduce((a, i) => a + (i.value || 0), 0);
+    box.innerHTML = `<div class="inv-detail-bar" style="--tc:${typeColor(ty.color)}">
+        <h2><i></i>${esc(ty.label)}<span class="inv-detail-count">${n} ${n === 1 ? "investment" : "investments"}</span></h2>
+        <span class="inv-detail-total"><small>Total value ${info(`val_${list[0]?.works_like || "other"}`)}</small>${money(value)}</span>
+        <button type="button" class="btn btn-sm btn-icon" id="inv-close" aria-label="Close" title="Close">✕</button>
+      </div>
+      <div class="panel-body" style="padding:12px 0 4px">${table(list, d.by_type, true)}</div>`;
+    $("#inv-close").addEventListener("click", () => showDetail(null));
+    if (scroll && sel) box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  showDetail(shown);
+  $$("details .inv-grp-head").forEach((h) => h.addEventListener("click", () => {
+    const isOpen = h.getAttribute("aria-expanded") !== "false";
+    h.setAttribute("aria-expanded", String(!isOpen));
+    h.parentElement.classList.toggle("collapsed", isOpen);
   }));
   $("#new-inv").addEventListener("click", async () => {
     const created = await investmentForm();
@@ -85,23 +106,42 @@ function kpi(label, value, color, foot, help) {
 }
 
 function upcoming(list) {
-  if (!list.length) return `<div class="empty small" style="padding:24px 0">Nothing due in the next 3 months</div>`;
+  if (!list.length) return `<div class="empty small" style="padding:24px 0">Nothing due in the next 30 days</div>`;
   const what = (u) => ({
     maturity: "Matures",
-    payout_due: "Interest due · record it",
+    payout_due: "Interest due | record it",
     payout: "Interest payout",
     rd_missed: `${u.count} instalment${u.count === 1 ? "" : "s"} not recorded`,
     rd_due: "Instalment due",
   }[u.kind]);
-  return `<div class="up-list">${list.slice(0, 8).map((u) => `
+  const today = todayISO();
+  return upList(list.map((u) => {
+    const late = u.kind !== "rd_missed" && u.date && u.date < today;   // date already passed: overdue, in red
+    return `
     <a class="up-row" href="#/investment/${u.id}">
-      <span class="up-date ${["payout_due", "rd_missed"].includes(u.kind) ? "due" : ""}">${u.kind === "rd_missed" ? "Now" : esc(dateLabel(u.date))}</span>
-      <span><span class="cell-main">${esc(u.name)}</span><div class="cell-sub">${esc(what(u))}</div></span>
+      <span class="up-date ${late ? "late" : ["payout_due", "rd_missed"].includes(u.kind) ? "due" : ""}">${u.kind === "rd_missed" ? "Now" : esc(dateLabel(u.date))}</span>
+      <span><span class="cell-main">${esc(u.name)}</span><div class="cell-sub">${late ? '<b class="c-expense">Overdue</b> | ' : ""}${esc(what(u))}</div></span>
       <span class="amt num">${money(u.amount)}</span>
-    </a>`).join("")}</div>`;
+    </a>`;
+  }));
 }
 
-function table(items, byType) {
+// "Upcoming dues & payouts" shows the first few rows; "Show N more" opens the rest (Investments page and Dashboard).
+const UP_FIRST = 6;
+export function upList(rows) {
+  const extra = rows.length - UP_FIRST;
+  return `<div class="up-list">${rows.map((r, i) => (i >= UP_FIRST ? r.replace('class="up-row', 'class="up-row up-extra') : r)).join("")}</div>
+    ${extra > 0 ? `<button type="button" class="btn btn-sm btn-ghost up-more" data-more="${extra}">Show ${extra} more</button>` : ""}`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest?.(".up-more");
+  if (!b) return;
+  const list = b.previousElementSibling, all = list.classList.toggle("all");
+  b.textContent = all ? "Show less" : `Show ${b.dataset.more} more`;
+});
+
+// single: one type is open (its name is the panel's heading), so the card's header carries only the column names and totals
+function table(items, byType, single = false) {
   if (!items.length) {
     return `<div class="empty"><div class="big">◔</div><p>No investments yet.</p>
       <p class="small faint">Add your stocks account, FD, RD, PPF, gold coins or silver bars to see them here.</p></div>`;
@@ -116,31 +156,36 @@ function table(items, byType) {
     i.institution && esc(i.institution),
     i.instalment && `${money(i.instalment)}/month`,
     i.next_due && `next due ${esc(dateLabel(i.next_due))}`,
-    // every instalment paid: say so (the maturity date is in its own column); once matured, prompt to close it
+    // every instalment paid: say so; once matured, prompt to close it
     i.all_paid && (i.maturity_date && i.maturity_date <= todayISO()
-      ? `<span class="inv-matured" title="Use Close on its page to record the money received">matured · close it</span>`
+      ? `<span class="inv-matured" title="Use Close on its page to record the money received">matured | close it</span>`
       : "all instalments paid"),
+    i.maturity_date && !(i.all_paid && i.maturity_date <= todayISO()) && !i.closed
+      && `${i.works_like === "chitty" ? "ends" : "matures"} ${esc(dateLabel(i.maturity_date))}`,
     i.rate && `${i.rate}%`,
-  ].filter(Boolean).join(" · ");
-  const row = (i) => `<a class="inv-row" href="#/investment/${i.id}">
+  ].filter(Boolean).join(" | ");
+  const row = (i) => `<a class="inv-row inv-grid" href="#/investment/${i.id}">
       <span class="inv-name"><span class="cell-main">${esc(i.name)}</span>${sub(i) ? `<span class="cell-sub">${sub(i)}</span>` : ""}</span>
       <span class="num hide-sm">${money(i.invested)}</span>
       <span class="num inv-val"><b>${money(i.value)}</b><small class="show-sm ${gainCls(i.gain)}">${i.gain ? money(i.gain, { sign: true }) : ""}</small></span>
-      <span class="num hide-sm">${gain(i.gain, i.gain_pct)}</span>
-      <span class="hide-sm small muted">${i.maturity_date ? esc(dateLabel(i.maturity_date)) : ""}</span>
+      <span class="num hide-sm">${gain(i.gain, i.gain_pct ?? (i.gain && i.invested ? Math.round(i.gain * 10000 / i.invested) / 100 : null))}</span>
+      <span class="hide-sm small muted inv-date"${i.since ? ` title="First invested on ${esc(dateLabel(i.since))}"` : ""}>${i.since ? esc(dateLabel(i.since)) : ""}</span>
     </a>`;
+  // The card's header uses the same columns as its rows: each column's name sits above the type's total for it.
   const groupHtml = (t) => {
     const list = groups[t], first = list[0];
     const sum = (k) => list.reduce((a, i) => a + (i[k] || 0), 0);
-    return `<section class="inv-grp" ${byType ? `id="grp-${t}"` : ""}>
-      <button type="button" class="inv-grp-head" aria-expanded="true">
-        <span class="inv-name"><span class="inv-grp-title"><i style="background:${typeColor(first.color)}"></i>${esc(first.type_label)}
-          <span class="faint">${list.length}</span><span class="chev" aria-hidden="true">⌄</span></span></span>
-        <span class="num hide-sm"><span class="lbl">Invested</span>${money(sum("invested"))}</span>
-        <span class="num inv-val"><span class="lbl">Value</span>${money(sum("value"))}</span>
-        <span class="num hide-sm">${gain(sum("gain"))}</span>
-        <span class="hide-sm"></span>
-      </button>
+    const g = sum("gain");
+    return `<section class="inv-grp" ${byType ? `id="grp-${t}"` : ""} style="--tc:${typeColor(first.color)}">
+      <${single ? "div" : "button type=\"button\""} class="inv-grp-head inv-grid${single ? " fixed" : ""}" aria-expanded="true">
+        ${single ? `<span class="inv-grp-cnt"><small>Investment</small></span>`
+          : `<span class="inv-grp-title"><i></i><span class="inv-grp-name">${esc(first.type_label)}</span><span class="inv-grp-count">${list.length}</span>
+          <span class="chev" aria-hidden="true">⌄</span></span>`}
+        <span class="num hide-sm"><small>Invested</small>${money(sum("invested"))}</span>
+        <span class="num inv-val"><small>Value</small><b>${money(sum("value"))}</b></span>
+        <span class="num hide-sm ${gainCls(g)}"><small>Gain</small>${money(g, { sign: true })}</span>
+        <span class="hide-sm inv-date"><small>Invested on</small></span>
+      </${single ? "div" : "button"}>
       <div class="inv-rows">${list.map(row).join("")}</div>
     </section>`;
   };
@@ -169,7 +214,7 @@ function fieldDefs(d, banks, bankAccounts, isNew, payAccounts) {
           class="${custom ? "" : "hidden"}" style="margin-top:6px">` },
     { name: "held_at", types: HELD_AT.join(" "), label: { ppf: "PPF Account With", _: "Bank Account" },
       hint: heldList.length ? (!d.held_at_account_id && inst ? `Earlier you typed “${inst}”: choose the account it's with.` : "")
-        : "Add your bank account in Accounts first, then choose it here.",
+        : "Add your bank account in Cash & Credit first, then choose it here.",
       html: `<select name="held_at_account_id">${options(heldList, d.held_at_account_id, { placeholder: heldList.length ? "Choose…" : "No bank accounts yet" })}</select>` },
     { name: "institution", types: "chitty other", full: true,
       label: { gold: "Where It's Kept", silver: "Where It's Kept", chitty: "Company / Organiser", _: "Institution / Platform" },
@@ -247,7 +292,7 @@ function buyFields(types, payAccounts) {
     { name: "buy_grams", types, req: types, label: "Weight (grams)", hint: "As on the bill",
       html: `<input name="buy_grams" id="buy-grams" inputmode="decimal">` },
     { name: "buy_purity", types, req: types, label: "Purity", ownOnly: true,
-      html: `<select name="buy_purity">${[["24K · 999", 99.9], ["24K · 995", 99.5], ["22K · 916", 91.6], ["18K · 750", 75], ["Silver · 999", 99.9], ["Sterling · 925", 92.5]]
+      html: `<select name="buy_purity">${[["24K | 999", 99.9], ["24K | 995", 99.5], ["22K | 916", 91.6], ["18K | 750", 75], ["Silver | 999", 99.9], ["Sterling | 925", 92.5]]
         .map(([l, v]) => `<option value="${v}" ${v === 91.6 ? "selected" : ""}>${l}</option>`).join("")}</select>` },
     { name: "buy_bill", types, label: "Bill Name", html: `<input name="buy_bill" maxlength="80" placeholder="Name on the bill">` },
     { name: "buy_from", types, req: types, label: "Paid From", hint: "The account it was paid from",

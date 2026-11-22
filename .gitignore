@@ -8,6 +8,10 @@ backups/*.db
 exports/
 demo-data/
 
+# update.sh: the new bundle while it's tested, and the previous one kept for --undo
+vendor/flask-bundle.new.zip
+vendor/flask-bundle.previous.zip
+
 # python
 __pycache__/
 *.pyc

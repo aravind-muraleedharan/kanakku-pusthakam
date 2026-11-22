@@ -22,30 +22,15 @@ let data;
 export async function render() {
   data = await api.money();
   const t = data.totals;
-  const due = data.cards.filter((c) => c.active && c.next_due && c.outstanding > 0).sort((a, b) => a.next_due.localeCompare(b.next_due))[0];
   $("#view").innerHTML = `
-    <div class="page-head">
-      <div><h1>Accounts</h1><div class="sub muted small">Where your everyday money is: bank accounts, credit cards, cash and wallets, as on ${esc(dateLabel(todayISO()))}.
-        Investments and loans have their own pages.</div></div>
+    <div class="page-head"><div><h1>Cash &amp; Credit</h1></div></div>
+
+    ${tiles("bank", data.banks, have(t.bank))}
+    <div class="grid grid-2">
+      ${tiles("cash", data.cash, have(t.cash))}
+      ${tiles("wallet", data.wallets || [], have(t.wallets || 0), "Amazon Pay, gift cards, vouchers, reward points")}
     </div>
-    <div class="grid grid-4">
-      ${kpi("In the bank", `<span class="${t.bank < 0 ? "neg" : ""}">${money(t.bank)}</span>`, `${data.banks.filter((a) => a.active).length} account${data.banks.filter((a) => a.active).length === 1 ? "" : "s"}`, "var(--income)")}
-      ${kpi("Cash", money(t.cash), t.wallets ? `in hand · ${money(t.wallets)} in wallets` : "in hand", "var(--transfer)")}
-      ${kpi("Card dues", money(t.card_owed), t.card_limit ? `of ${money(t.card_limit)} limit` : "on all cards", "var(--expense)", "card_dues")}
-      ${kpi("Next card bill", due ? money(due.outstanding) : "—", due ? `${esc(due.name)} · due ${esc(shortDate(due.next_due))}` : "nothing due", "var(--warn)")}
-    </div>
-    <div class="mm-grid">
-      <div class="stack">
-        ${section("bank", data.banks, money(t.bank))}
-        ${section("cash", data.cash, money(t.cash))}
-        ${section("wallet", data.wallets || [], money(t.wallets || 0), "Amazon Pay, gift cards, vouchers, reward points: money you can only spend at one place.")}
-      </div>
-      <div class="stack">
-        ${section("credit_card", data.cards, `owed ${money(t.card_owed)}${t.card_limit ? ` of ${money(t.card_limit)} limit` : ""}`)}
-        <p class="small faint" style="margin:0 4px">Looking for investments, loans or your net worth? See
-          <a href="#/investments">Investments</a>, <a href="#/loans">Loans &amp; EMIs</a> and the <a href="#/dashboard">Dashboard</a>.</p>
-      </div>
-    </div>`;
+    ${tiles("credit_card", data.cards, `<span class="neg">${money(t.card_owed)}</span> <span class="acc-owed">owed</span>`)}`;
   $$("[data-add]").forEach((b) => b.addEventListener("click", () => accountForm(b.dataset.add)));
   $$("[data-edit]").forEach((r) => r.addEventListener("click", () => {
     const all = [...data.banks, ...data.cards, ...data.cash, ...(data.wallets || [])];
@@ -59,6 +44,45 @@ function kpi(label, value, foot, color, help) {
     <div class="kpi-value">${value}</div><div class="kpi-foot">${foot}</div></div>`;
 }
 
+// A section's total: green for money you have (red if the accounts are overdrawn)
+const have = (v) => `<span class="${v < 0 ? "neg" : "pos"}">${money(v)}</span>`;
+
+// Each kind of account in its own envelope, every account a tile you can click to edit
+const TITLE = { bank: "Bank Accounts", cash: "Cash Wallet", wallet: "Reward Points", credit_card: "Credit Cards" };
+const ADD = { bank: "Bank account", credit_card: "Credit card", cash: "Cash", wallet: "Wallet" };
+function tiles(kind, list, total, about = "") {
+  const on = list.filter((a) => a.active), off = list.filter((a) => !a.active);
+  const grid = (l) => `<div class="acc-grid ${kind === "credit_card" ? "cards" : ""}">${l.map((a) => tile(kind, a)).join("")}</div>`;
+  return `<section class="dash-env acc-sec">
+    <div class="dash-section"><h2 class="dash-h"><span class="mm-ico">${KIND[kind].icon}</span>${TITLE[kind]}<span class="acc-total">${total}</span></h2>
+      <button class="btn btn-sm" data-add="${kind}">+ ${ADD[kind]}</button></div>
+    ${on.length ? grid(on) : `<p class="small faint" style="margin:4px 2px">${about ? esc(about) : "None yet."}</p>`}
+    ${off.length ? `<details class="mm-off"><summary class="small muted">Inactive | ${off.length}</summary>${grid(off)}</details>` : ""}
+  </section>`;
+}
+function tile(kind, a) {
+  const sub = kind === "bank" ? [a.institution, a.subtype && SUBTYPE[a.subtype]].filter(Boolean).join(" | ")
+    : kind === "credit_card" ? (a.institution || "") : "";
+  if (kind !== "credit_card") {
+    return `<div class="acc-tile ${!a.balance ? "zero" : ""}" data-edit="${a.id}" role="button" tabindex="0">
+      <div class="acc-top"><span class="acc-name">${esc(a.name)}</span><span class="mm-edit" aria-hidden="true">✎</span></div>
+      ${sub ? `<div class="acc-sub">${esc(sub)}</div>` : ""}
+      <div class="acc-amt ${a.balance < 0 ? "neg" : ""}">${money(a.balance)}</div></div>`;
+  }
+  const p = Math.min(100, a.limit_used_pct || 0);
+  const soon = a.next_due && a.due_in_days <= 5 && a.outstanding > 0;
+  return `<div class="acc-tile card" data-edit="${a.id}" role="button" tabindex="0">
+    <div class="acc-top"><span class="acc-name">${esc(a.name)}</span><span class="mm-edit" aria-hidden="true">✎</span></div>
+    ${sub ? `<div class="acc-sub">${esc(sub)}</div>` : ""}
+    <div class="acc-amt ${a.outstanding > 0 ? "neg" : ""}">${money(a.outstanding)} <small>owed</small></div>
+    ${a.credit_limit ? `<div class="progress ${p >= 75 ? "warn" : ""}" style="height:6px;margin:10px 0 6px"><div style="width:${p}%"></div></div>
+      <div class="acct-line"><span><b class="v-ok">${money(a.available)}</b> available</span><span>Limit <b>${money(a.credit_limit)}</b></span></div>` : ""}
+    <div class="acct-line">${a.bill_day ? `<span>Bill on <b class="v-info">${ordinal(a.bill_day)}</b></span>` : "<span></span>"}
+      ${a.next_due ? `<span>Due <b class="${soon ? "v-bad" : "v-warn"}">${esc(shortDate(a.next_due))}${soon ? (a.due_in_days === 0 ? " | today" : ` | in ${a.due_in_days} day${a.due_in_days === 1 ? "" : "s"}`) : ""}</b></span>` : ""}</div>
+    ${a.emis && a.emis.length ? `<div class="acc-emi">EMIs on this card: ${a.emis.map((e) => `<a href="#/loan/${e.id}">${esc(e.name)}</a> ${money(e.emi)}/month`).join(" | ")}</div>` : ""}
+  </div>`;
+}
+
 function head(icon, title, total, button) {
   return `<div class="mm-head"><h2><span class="mm-ico">${icon}</span>${title}</h2><span class="mm-total">${total}</span>${button}</div>`;
 }
@@ -70,7 +94,7 @@ function section(kind, list, total, about = "") {
   return `<section class="panel mm-sec">
     ${head(k.icon, k.title, total, `<button class="btn btn-sm" data-add="${kind}">+ ${{ bank: "Bank account", credit_card: "Credit card", cash: "Cash", wallet: "Wallet" }[kind]}</button>`)}
     <div class="mm-list">${on.length ? rows(on) : `<p class="small faint mm-empty">${about ? esc(about) : "None yet."}</p>`}</div>
-    ${off.length ? `<details class="mm-off"><summary class="small muted">Inactive · ${off.length}</summary><div class="mm-list">${rows(off)}</div></details>` : ""}
+    ${off.length ? `<details class="mm-off"><summary class="small muted">Inactive | ${off.length}</summary><div class="mm-list">${rows(off)}</div></details>` : ""}
   </section>`;
 }
 
@@ -85,7 +109,7 @@ function row(kind, a) {
     sub = [a.institution].filter(Boolean);
     amount = `<span class="${a.outstanding > 0 ? "neg" : ""}">${money(a.outstanding)}</span><small>owed</small>`;
     const bits = [];
-    if (a.credit_limit) bits.push(`limit ${money(a.credit_limit)} · ${money(a.available)} available`);
+    if (a.credit_limit) bits.push(`limit ${money(a.credit_limit)} | ${money(a.available)} available`);
     if (a.bill_day) bits.push(`bill on ${ordinal(a.bill_day)}`);
     if (a.next_due) {
       const soon = a.due_in_days <= 5 && a.outstanding > 0;
@@ -95,14 +119,14 @@ function row(kind, a) {
       const p = Math.min(100, a.limit_used_pct || 0);
       extra = `<div class="progress ${p >= 75 ? "warn" : ""}" style="height:6px;margin-top:6px"><div style="width:${p}%"></div></div>`;
     }
-    if (bits.length) extra += `<div class="cell-sub" style="margin-top:4px">${bits.join(" · ")}</div>`;
+    if (bits.length) extra += `<div class="cell-sub" style="margin-top:4px">${bits.join(" | ")}</div>`;
     if (a.emis && a.emis.length) {
       extra += `<div class="cell-sub" style="margin-top:4px">EMIs on this card: ${a.emis.map((e) =>
-        `<a href="#/loan/${e.id}">${esc(e.name)}</a> ${money(e.emi)}/month`).join(" · ")}</div>`;
+        `<a href="#/loan/${e.id}">${esc(e.name)}</a> ${money(e.emi)}/month`).join(" | ")}</div>`;
     }
   }
   return `<div class="mm-row" data-edit="${a.id}" role="button" tabindex="0">
-    <div class="mm-main"><div class="cell-main">${esc(a.name)}</div>${sub.length ? `<div class="cell-sub">${esc(sub.join(" · "))}</div>` : ""}${extra}</div>
+    <div class="mm-main"><div class="cell-main">${esc(a.name)}</div>${sub.length ? `<div class="cell-sub">${esc(sub.join(" | "))}</div>` : ""}${extra}</div>
     <div class="mm-amt">${amount}</div><span class="mm-edit" aria-hidden="true">✎</span>
   </div>`;
 }

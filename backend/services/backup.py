@@ -3,6 +3,7 @@
 Restoring always saves the current data to the backups folder first ("pre-restore"), so it can be undone.
 """
 import os
+import re
 import sqlite3
 from datetime import datetime
 
@@ -51,7 +52,7 @@ def backup_to(path):
         os.chmod(target, 0o600)               # only you can read it
     except OSError:
         pass                                  # e.g. FAT-formatted pen drives have no permissions
-    settings_svc.set_many({"backup_folder": folder})
+    settings_svc.set_many({"backup_folder": folder, "backup_folder_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
     return {"file": target, "size_kb": round(os.path.getsize(target) / 1024, 1)}
 
 
@@ -59,6 +60,17 @@ def _check_password(password):
     user = auth_svc.get_user()
     if not user or not check_password_hash(user["password_hash"], password or ""):
         raise ApiError("Password is incorrect", field="password")
+
+
+def _app_tables():
+    """Every table any version of this app has created (read from its own migrations), plus SQLite's own."""
+    names = {"sqlite_sequence", "sqlite_stat1", "schema_version"}   # schema_version: made by db.migrate
+    folder = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "migrations")
+    for f in os.listdir(folder):
+        if f.endswith(".sql"):
+            with open(os.path.join(folder, f)) as fh:
+                names |= set(re.findall(r"CREATE TABLE(?: IF NOT EXISTS)?\s+(\w+)", fh.read(), re.I))
+    return names
 
 
 def validate_file(path):
@@ -71,9 +83,15 @@ def validate_file(path):
         try:
             if src.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ApiError("That backup file is damaged.", field="file")
-            tables = {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            objects = src.execute("SELECT type, name FROM sqlite_master").fetchall()
+            tables = {name for kind, name in objects if kind == "table"}
             if not REQUIRED_TABLES <= tables:
                 raise ApiError("That file isn't a database backup from this app.", field="file")
+            # nothing this app doesn't make: no triggers or views (they could run hidden changes later), no unknown tables
+            extra = [name for kind, name in objects if kind in ("trigger", "view")] + sorted(tables - _app_tables())
+            if extra:
+                raise ApiError("That file has been changed outside this app, so it isn't restored "
+                               f"(unexpected: {', '.join(extra[:3])}).", field="file")
             version = src.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] or 0
         finally:
             src.close()

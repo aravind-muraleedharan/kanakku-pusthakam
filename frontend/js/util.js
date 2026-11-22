@@ -133,12 +133,13 @@ export function modal({ title, body, submitLabel = "Save", onSubmit, wide = fals
     const root = $("#modal-root");
     root.innerHTML = `
       <div class="modal-back">
-        <form class="modal panel ${wide ? "wide" : ""}" novalidate>
-          <h2>${esc(title)}</h2>
-          <div class="stack">${body}</div>
+        <form class="modal panel ${wide ? "wide" : ""}" novalidate role="dialog" aria-modal="true" aria-label="${esc(title)}">
+          <div class="modal-head"><h2>${esc(title)}</h2>
+            <button type="button" class="modal-x" data-cancel aria-label="Close">✕</button></div>
+          <div class="modal-body stack">${body}</div>
           <p class="err small c-expense hidden" data-err></p>
-          <div class="form-actions">
-            <button type="button" class="btn" data-cancel>Cancel</button>
+          <div class="form-actions modal-foot">
+            <button type="button" class="btn btn-ghost" data-cancel>Cancel</button>
             <button type="submit" class="btn btn-primary">${esc(submitLabel)}</button>
           </div>
         </form>
@@ -147,7 +148,7 @@ export function modal({ title, body, submitLabel = "Save", onSubmit, wide = fals
     const close = (val) => { root.innerHTML = ""; document.removeEventListener("keydown", onKey); resolve(val); };
     const onKey = (e) => { if (e.key === "Escape") close(null); };
     document.addEventListener("keydown", onKey);
-    $("[data-cancel]", root).onclick = () => close(null);
+    $$("[data-cancel]", root).forEach((b) => { b.onclick = () => close(null); });
     $(".modal-back", root).addEventListener("mousedown", (e) => { if (e.target.classList.contains("modal-back")) close(null); });
     form.onsubmit = async (e) => {
       e.preventDefault();
@@ -185,4 +186,39 @@ export function financialYear(iso = todayISO()) {
   const y = +iso.slice(0, 4), m = +iso.slice(5, 7);
   const start = m >= 4 ? y : y - 1;
   return { from: `${start}-04-01`, to: `${start + 1}-03-31`, label: `FY ${start}-${String(start + 1).slice(2)}` };
+}
+
+/** Download a generated file (e.g. an Excel export). Fetched first, so a problem shows as a message instead of a broken download. */
+export async function downloadFile(url, fallbackName, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(url, { credentials: "same-origin" });
+    if (!r.ok) {
+      let msg = "";
+      try { msg = (await r.json()).error; } catch { /* not JSON */ }
+      // a plain "Not found" means the running app is older than this page (new backend files not loaded yet)
+      throw new Error(r.status === 404 && (!msg || msg === "Not found") ? "The app was updated: restart it, then try again." : msg || `Export failed (${r.status})`);
+    }
+    const name = /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "")?.[1] || fallbackName;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast(`Saved ${name}`);
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/** Line under a page title: an icon + a short fact (where it's held, since when). */
+const META_ICON = {
+  bank: '<path d="M3 10h18M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18M12 3l9 5H3z"/>',
+  date: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+};
+export function metaItem(icon, text, title = "") {
+  return `<span class="meta-item"${title ? ` title="${esc(title)}"` : ""}><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+    stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${META_ICON[icon]}</svg>${esc(text)}</span>`;
 }

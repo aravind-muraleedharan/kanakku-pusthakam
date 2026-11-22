@@ -15,7 +15,7 @@ from ..services import entries as entries_svc
 
 bp = Blueprint("system", __name__)
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "2.0.0"
 
 
 @bp.get("/system/info")
@@ -31,6 +31,7 @@ def info():
         "first_entry": count["first"],
         "last_entry": count["last"],
         "backup_folder": backup_svc.last_folder(),
+        "backup_folder_at": backup_svc.settings_svc.get("backup_folder_at") or "",
     })
 
 

@@ -1,9 +1,10 @@
 """Database access: connections, migrations and backups."""
 import glob
+import hashlib
 import os
 import re
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime
 
 from flask import current_app, g
 
@@ -102,47 +103,86 @@ def migrate(db_path, backup_dir):
 
 # ---------------------------------------------------------------- backups
 
-KEEP_BACKUPS = 10          # newest backup files kept in the backups folder (all kinds)
-AUTO_EVERY_DAYS = 7        # automatic backup: once a week
+# How many of each kind stay in the backups folder. The kind is the last part of the file name.
+KEEP = {"daily": 7, "weekly": 8, "pre-migration": 3, "pre-restore": 3, "manual": 3}
+NOT_DATA = {"users", "password_resets"}       # login details change at every login: not "your data changing"
+FINGERPRINT_FILE = ".last_backup_fingerprint"
 
 
-def backup(conn, backup_dir, label="manual", keep=None):
+def _kind(path):
+    k = os.path.basename(path)[:-3].split("_", 3)[-1]          # expenses_<date>_<time>_<kind>.db
+    return "weekly" if k == "auto" else k                      # older weekly backups were called "auto"
+
+
+def backup(conn, backup_dir, label="manual", keep=None, when=None):
     """Copy the live database to backups/expenses_<timestamp>_<label>.db using SQLite's backup API,
-    then keep only the newest `keep` backups in that folder."""
+    then tidy the folder (see KEEP). `keep` is no longer used: each kind has its own limit."""
     os.makedirs(backup_dir, exist_ok=True)
-    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    stamp = (when or datetime.now()).strftime("%Y-%m-%d_%H%M%S")
     path = os.path.join(backup_dir, f"expenses_{stamp}_{label}.db")
     dest = sqlite3.connect(path)
     try:
         conn.backup(dest)
     finally:
         dest.close()
-    prune_backups(backup_dir, KEEP_BACKUPS if keep is None else keep)
+    prune_backups(backup_dir)
     return path
 
 
-def prune_backups(backup_dir, keep):
-    """Delete all but the newest `keep` backup files (names start with the date, so they sort by age)."""
-    files = sorted(glob.glob(os.path.join(backup_dir, "expenses_*.db")))
-    for old in files[:-keep] if keep > 0 else []:
-        try:
-            os.remove(old)
-        except OSError:
-            pass
+def prune_backups(backup_dir, keep=None):
+    """Keep only the newest few of each kind (names start with the date, so they sort by age)."""
+    groups = {}
+    for f in sorted(glob.glob(os.path.join(backup_dir, "expenses_*.db"))):
+        groups.setdefault(_kind(f), []).append(f)
+    for kind, files in groups.items():
+        n = KEEP.get(kind, 3)
+        for old in files[:-n]:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
 
 
-def weekly_backup(db_path, backup_dir, every_days=AUTO_EVERY_DAYS, keep=None):
-    """Make an automatic backup if the last one is a week old (or there is none)."""
+def fingerprint(conn):
+    """A short code that changes whenever your data changes (login details left out)."""
+    h = hashlib.sha256()
+    tables = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+    for t in tables:
+        if t in NOT_DATA:
+            continue
+        h.update(t.encode())
+        for row in conn.execute(f'SELECT * FROM "{t}" ORDER BY rowid'):
+            h.update(repr(tuple(row)).encode())
+    return h.hexdigest()
+
+
+def daily_backup(db_path, backup_dir, today=None):
+    """The automatic backup: once a day (at the first login, or when the app starts), only if your data changed
+    since the last one. Every 7 days it is kept as a weekly backup, so older history stays too."""
     if not os.path.exists(db_path):
         return None
-    autos = sorted(glob.glob(os.path.join(backup_dir, "expenses_*_auto.db")))
-    if autos:
-        age_days = (datetime.now().timestamp() - os.path.getmtime(autos[-1])) / 86400
-        if age_days < every_days:
-            return None
+    today = today or date.today()
+    autos = [f for f in sorted(glob.glob(os.path.join(backup_dir, "expenses_*.db"))) if _kind(f) in ("daily", "weekly")]
+    if any(os.path.basename(f)[9:19] == today.isoformat() for f in autos):
+        return None                                            # already one today
     conn = connect(db_path)
     try:
-        return backup(conn, backup_dir, label="auto", keep=keep)
+        fp = fingerprint(conn)
+        fp_file = os.path.join(backup_dir, FINGERPRINT_FILE)
+        try:
+            with open(fp_file) as fh:
+                if fh.read().strip() == fp:
+                    return None                                # nothing changed since the last backup
+        except OSError:
+            pass
+        weeklies = [f for f in autos if _kind(f) == "weekly"]
+        last_week = date.fromisoformat(os.path.basename(weeklies[-1])[9:19]) if weeklies else None
+        label = "weekly" if not last_week or (today - last_week).days >= 7 else "daily"
+        path = backup(conn, backup_dir, label=label, when=datetime.combine(today, datetime.now().time()))
+        with open(fp_file, "w") as fh:
+            fh.write(fp)
+        return path
     finally:
         conn.close()
 
@@ -155,5 +195,6 @@ def list_backups(backup_dir):
             "file": os.path.basename(path),
             "size_kb": round(st.st_size / 1024, 1),
             "created": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"),
+            "kind": _kind(path),
         })
     return out

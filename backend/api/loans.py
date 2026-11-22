@@ -24,6 +24,27 @@ def create():
     return jsonify(svc.create(_body())), 201
 
 
+@bp.get("/loans/types")
+def types():
+    return jsonify(svc.list_types())
+
+
+@bp.post("/loans/types")
+def add_type():
+    return jsonify(svc.add_type(_body())), 201
+
+
+@bp.put("/loans/types/<int:type_id>")
+def rename_type(type_id):
+    return jsonify(svc.rename_type(type_id, _body()))
+
+
+@bp.delete("/loans/types/<int:type_id>")
+def delete_type(type_id):
+    svc.delete_type(type_id)
+    return jsonify({"ok": True})
+
+
 @bp.get("/loans/<int:loan_id>")
 def get(loan_id):
     return jsonify(svc.get(loan_id))

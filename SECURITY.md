@@ -9,11 +9,15 @@ that isn't addressed to `127.0.0.1` / `localhost`, so a web page you visit can't
 ## What protects your data
 
 - Login with a password (stored as a salted scrypt hash) **and** a 6-digit code from an authenticator app
-- 5 wrong passwords or codes lock logins for 5 minutes; idle sessions end after 30 minutes (adjustable)
+- 5 wrong passwords or codes lock logins for 5 minutes
+- Auto-logout after the minutes of inactivity you choose (30 by default): the page logs out on its own, and the
+  server ends the session too
+- Pairing a new authenticator from Settings asks for your password first
 - Password reset links are single-use and expire after 30 minutes; the authenticator is still required afterwards
 - Session cookies are HttpOnly and SameSite=Strict; state-changing API calls require a custom header (CSRF protection)
 - The page may only load and send data to the app itself (Content-Security-Policy); no CDNs, fonts or analytics
 - `data/` and `backups/` are readable only by your user account (folders 700, files 600)
+- Restoring checks the file first and refuses one that was changed outside the app (extra triggers, views or tables)
 - The browser is told not to remember what you type into the app's fields
 
 ## What it does not protect against

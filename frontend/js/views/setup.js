@@ -49,7 +49,7 @@ export async function render() {
     <form id="setup-form" novalidate style="max-width:860px">
       ${GROUPS.map((g) => group(g, accounts.filter((a) => a.kind === g.kind))).join("")}
       <div class="callout small" style="margin-bottom:16px"><strong>Investments and loans</strong> are added on their own pages,
-        with the amount already invested or owed: <a href="#/investments">Investments →</a> · <a href="#/loans">Loans &amp; EMIs →</a></div>
+        with the amount already invested or owed: <a href="#/investments">Investments →</a> | <a href="#/loans">Loans &amp; EMIs →</a></div>
       <div class="form-actions" style="margin-top:4px">
         <button type="submit" class="btn btn-primary">Save starting balances</button>
         <span class="spacer"></span>

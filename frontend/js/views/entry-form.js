@@ -173,8 +173,8 @@ async function refreshMetal() {
 function metalFields() {
   if (!metal) return "";
   const word = metal.kind === "gold" ? "Gold" : "Silver";
-  const presets = metal.kind === "gold" ? [["24K · 999", "99.9"], ["24K · 995", "99.5"], ["22K · 916", "91.6"], ["18K · 750", "75"]]
-    : [["999", "99.9"], ["Sterling · 925", "92.5"]];
+  const presets = metal.kind === "gold" ? [["24K | 999", "99.9"], ["24K | 995", "99.5"], ["22K | 916", "91.6"], ["18K | 750", "75"]]
+    : [["999", "99.9"], ["Sterling | 925", "92.5"]];
   const what = metal.scheme ? "instalment" : "purchase";
   const note = !editing ? `Recorded on <b>${esc(metal.name)}</b> as ${metal.scheme ? "an instalment" : "a purchase"}, with its weight.`
     : metal.item ? `The weight of this ${what} on <b>${esc(metal.name)}</b>. Changes here are saved there too.`
@@ -210,13 +210,13 @@ function draw() {
     <div class="page-head">
       <div class="title-row">${backButton("#/entries", "Transactions")}
         <div><h1>${editing ? "Edit transaction" : "Add transaction"}</h1>
-        ${editing ? `<div class="sub small faint">Created ${esc(editing.created_at)}${editing.updated_at !== editing.created_at ? ` · edited ${esc(editing.updated_at)}` : ""}</div>` : ""}</div></div>
+        ${editing ? `<div class="sub small faint">Created ${esc(editing.created_at)}${editing.updated_at !== editing.created_at ? ` | edited ${esc(editing.updated_at)}` : ""}</div>` : ""}</div></div>
     </div>
-    <form class="panel panel-pad form-card" id="entry-form" novalidate autocomplete="off">
+    <form class="panel panel-pad form-card entry-form t-is-${t}" id="entry-form" novalidate autocomplete="off">
       <div class="types-row"><div class="seg types" role="tablist" aria-label="Transaction type">
         ${Object.entries(TYPE_LABEL).map(([k, l]) => `<button type="button" data-v="${k}" class="${k === t ? "on" : ""}" role="tab" aria-selected="${k === t}">${l}</button>`).join("")}
       </div>${info("types")}</div>
-      <p class="small muted" style="margin:10px 0 18px">${TYPE_HELP[t]}</p>
+      <p class="type-help">${TYPE_HELP[t]}</p>
       <div class="form-grid">
         ${field("amount", t === "redeem" ? "Amount received" : "Amount",
           `<div class="amount-wrap"><input id="f-amount" name="amount" class="amount-input" inputmode="decimal" placeholder="0" value="${esc(v.amount)}" required></div>`)}
@@ -320,9 +320,14 @@ function bind() {
     draw();
     refreshMetal();
   }));
+  // Today / Yesterday: light up the one the date matches
+  const markDay = () => $$("[data-date]").forEach((b) => b.classList.toggle("on", $("#f-date").value === addDays(todayISO(), +b.dataset.date)));
   $$("[data-date]").forEach((b) => b.addEventListener("click", () => {
     $("#f-date").value = addDays(todayISO(), +b.dataset.date);
+    v.date = $("#f-date").value; markDay();
   }));
+  $("#f-date").addEventListener("input", markDay);
+  markDay();
   form.addEventListener("input", (e) => {
     if (e.target.name) v[e.target.name] = e.target.value;
     if (["amount", "principal_amount"].includes(e.target.name)) updateGain();
@@ -413,15 +418,15 @@ async function save(another) {
         purity: metal.own ? v.metal_purity : "", paid_from_account_id: v.from_account_id,
         payment_mode_id: v.payment_mode_id, note: v.note,
       });
-      toast(`Saved: ${metal.scheme ? "instalment" : "purchase"} of ${v.metal_grams} g · ${metal.name}`);
+      toast(`Saved: ${metal.scheme ? "instalment" : "purchase"} of ${v.metal_grams} g | ${metal.name}`);
     } else if (closesNow()) {
       // everything invested is coming back: close it, as its page's Close does
       const a = accById(v.from_account_id);
       await api.invPost(a.id, "close", { date: v.date, amount: v.amount, to_account_id: v.to_account_id, note: v.note });
-      toast(`Saved: maturity ${money(parseFloat(String(v.amount).replace(/,/g, "")))} · ${a.name} closed`);
+      toast(`Saved: maturity ${money(parseFloat(String(v.amount).replace(/,/g, "")))} | ${a.name} closed`);
     } else {
       const saved = await api.createEntry(payload);
-      toast(`Saved: ${TYPE_LABEL[saved.type]} ${money(saved.amount)}${saved.category ? " · " + saved.category : ""}`);
+      toast(`Saved: ${TYPE_LABEL[saved.type]} ${money(saved.amount)}${saved.category ? " | " + saved.category : ""}`);
     }
     store.set("lastType", v.type);
     store.set("last:" + v.type, { from: v.from_account_id, to: v.to_account_id, mode: v.payment_mode_id });
@@ -438,7 +443,11 @@ async function save(another) {
 }
 
 async function remove() {
-  const ok = await confirmDialog("Delete this transaction?", `${TYPE_LABEL[editing.type]} of ${money(editing.amount)} on ${editing.date}. This can't be undone.`);
+  const lp = editing.loan_payment;       // part of a loan payment: the whole payment goes, and it shows unpaid again
+  const what = lp ? { emi: "EMI", prepay: "prepayment", foreclose: "closing payment" }[lp.kind] || "payment" : "";
+  const ok = await confirmDialog(lp ? `Delete this ${what} of ${lp.loan}?` : "Delete this transaction?", lp
+    ? `${lp.entries > 1 ? `All ${lp.entries} entries of this ${what} are deleted` : `This ${what} is deleted`}, and it shows as unpaid on the loan again. This can't be undone.`
+    : `${TYPE_LABEL[editing.type]} of ${money(editing.amount)} on ${editing.date}. This can't be undone.`);
   if (!ok) return;
   try {
     await api.deleteEntry(editing.id);
@@ -482,7 +491,7 @@ async function newAccount(side) {
     body: `
       <div class="field"><label class="req">Name</label><input name="name" required maxlength="80" placeholder="${kinds.includes("investment") ? "e.g. KSFE Chit Fund, Federal RD" : "e.g. ICICI, Amazon Pay ICICI Card"}"></div>
       <div class="field"><label class="req">Type</label><select name="kind">${kinds.map((k) => `<option value="${k}">${KIND_LABEL[k]}</option>`).join("")}</select></div>
-      <div class="field"><label>Opening balance</label><input name="opening_balance" inputmode="decimal" placeholder="0">
+      <div class="field"><label>Opening balance</label><div class="amount-wrap"><input name="opening_balance" inputmode="decimal" placeholder="0"></div>
         <div class="hint">Bank/cash: current balance. Credit card: amount currently owed. Investment: principal already invested.</div></div>`,
     onSubmit: (vals) => api.createMaster("accounts", vals),
   });

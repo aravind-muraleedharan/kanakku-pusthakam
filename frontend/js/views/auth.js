@@ -17,7 +17,7 @@ function shell(title, sub, body) {
         ${sub ? `<p class="muted small auth-sub">${sub}</p>` : ""}
         ${body}
       </div>
-      <p class="faint small auth-foot">Runs only on this computer · your data never leaves it</p>
+      <p class="faint small auth-foot">Runs only on this computer | your data never leaves it</p>
     </div>`;
 }
 
@@ -88,7 +88,24 @@ export function renderRegister(done) {
 // ---------------------------------------------------------------- authenticator setup
 
 export async function renderMfaSetup(done, { fromSettings = false } = {}) {
-  const { secret, uri } = await api.mfaBegin();
+  // from Settings (already logged in): confirm it's you before a new phone can be paired
+  if (fromSettings) {
+    view().innerHTML = `<div class="page-head"><div><h1>Set up authenticator on a new phone</h1>
+      <div class="sub small muted">First confirm it's you. Your old phone's code stops working once you finish.</div></div></div>
+      <div class="panel auth-card" style="margin:0"><form id="pw" class="stack" novalidate>
+        ${field("password", "Your password", "password", 'autocomplete="current-password" required')}
+        ${errBox}
+        <button type="submit" class="btn btn-primary btn-block">Continue</button>
+        <a class="btn btn-ghost btn-block" href="#/settings?s=security">Cancel</a>
+      </form></div>`;
+    $("#a-password").focus();
+    onSubmit($("#pw"), async (d) => { showSetup(await api.mfaBegin(d.password), done, true); });
+    return;
+  }
+  showSetup(await api.mfaBegin(), done, false);
+}
+
+function showSetup({ secret, uri }, done, fromSettings) {
   const pretty = secret.replace(/(.{4})/g, "$1 ").trim();
   const body = `
     <ol class="mfa-steps small">
@@ -99,7 +116,7 @@ export async function renderMfaSetup(done, { fromSettings = false } = {}) {
     <details class="small muted manual-key">
       <summary>Can't scan? Enter this key instead</summary>
       <code class="secret">${esc(pretty)}</code>
-      <div class="faint">Account: Kanakku Pusthakam · Time based · 6 digits</div>
+      <div class="faint">Account: Kanakku Pusthakam | Time based | 6 digits</div>
     </details>
     <form id="f" class="stack" novalidate style="margin-top:14px">
       ${codeField()}

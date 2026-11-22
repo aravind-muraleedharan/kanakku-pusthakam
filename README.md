@@ -36,8 +36,9 @@ Stop the app with **Ctrl+C** in the terminal.
   Accounts shows what you owe on each card, its limit, the next due date and the EMIs running on it
 - **Accounts:** your bank accounts, cards (limit, due date), cash, and **wallets & gift cards** (Amazon Pay, vouchers,
   reward points) in one place; **net worth** on the Dashboard
+- **Transactions:** an Earned | Spent panel with a category ring for any month or date range, filters, and pages of 50
 - **Monthly Budget:** plan your income and expenses for up to three months, with a note per amount, payments
-  ticked off as you make them, and whether your income covers your expenses
+  ticked off as you make them, and whether your income covers your expenses; export it as a styled Excel sheet
 - **Investments aren't spending:** money put in is tracked as principal; when it matures only the gain (or loss)
   counts as income. Built-in types with their own maths:
   - **Fixed and recurring deposits:** interest, maturity value, instalments due on the start date's day; tenure in
@@ -48,25 +49,29 @@ Stop the app with **Ctrl+C** in the terminal.
     **gold savings schemes** counted per month
   - **Chit funds:** instalments paid and missed, the prize, closing
   - **Close** an investment (matured, broken early, sold) and the closing is recorded; **delete** removes it completely
+- **Your own investment types** (e.g. Mutual funds, working like Stocks) with their own extra fields
 - **Loans & EMIs:** credit card EMIs and personal loans with the full schedule, interest worked out from the EMI,
-  prepayments (reduce tenure or EMI), and only the interest counted as an expense
+  prepayments (reduce tenure or EMI), and only the interest counted as an expense; add your own loan types
 - **Coming up:** the next EMIs, deposit instalments and interest payouts on the dashboard
 - **ⓘ help** next to terms that need a word of explanation
-- **Reports:** monthly income / expense / savings, category totals, a month × category heat map,
-  spending by payment mode; any period including the Indian financial year (Apr–Mar)
+- **Reports:** a Summary (totals with ▲/▼ against the period before, a chart, month by month, how you paid) and
+  Categories (a share strip and a category × month heat map); any period including the Indian financial year
+  (Apr–Mar); **export to Excel** with charts
 - **Starting balances "as on" a date** for every bank account, card, cash and investment
 - **Secure login:** password + authenticator app (Google / Microsoft Authenticator, Authy), optional password reset
-  by email. The app only answers on this computer, and its files are readable only by you
+  by email, and auto-logout after the minutes of inactivity you choose. The app only answers on this computer,
+  and its files are readable only by you
 - **Light, dark and auto theme**, works on phone-sized screens
-- **Your data stays yours:** one SQLite file, automatic backups, backup to a pen drive or other folder,
-  restore from a backup, CSV export for Excel
+- **Your data stays yours:** one SQLite file, automatic daily backups, backup to a pen drive or other folder,
+  restore from a backup, CSV and Excel exports
 
 | | |
 | --- | --- |
 | ![Accounts](docs/screenshots/accounts.png) | ![Investments](docs/screenshots/investments.png) |
 | ![Loans and EMIs](docs/screenshots/loans.png) | ![Dark theme](docs/screenshots/dashboard-dark.png) |
-| ![Add an entry](docs/screenshots/add-entry.png) | ![Month × category](docs/screenshots/month-category.png) |
-| ![Monthly Budget](docs/screenshots/budget.png) | ![Login with authenticator](docs/screenshots/login-code.png) |
+| ![Add an entry](docs/screenshots/add-entry.png) | ![Reports](docs/screenshots/reports.png) |
+| ![Transactions](docs/screenshots/transactions.png) | ![Monthly Budget](docs/screenshots/budget.png) |
+| ![Settings](docs/screenshots/settings.png) | ![Login with authenticator](docs/screenshots/login-code.png) |
 
 ## How it counts money
 
@@ -82,11 +87,19 @@ Stop the app with **Ctrl+C** in the terminal.
 ## Your data
 
 - Everything is in `data/expenses.db` (git-ignored). Back it up by copying the `backups/` folder somewhere safe.
-- A backup is taken automatically once a week and before any database upgrade; the newest 10 are kept.
-  **Settings → Backup & export** makes one on demand and exports all entries to CSV.
-- **Settings → Backup & export** can also copy the database to any folder (a pen drive, another disk) and restore
-  from a backup file (your password is asked first; your current data is saved before restoring).
+- A backup is taken automatically at the first login each day (only if something changed): the last 7 days are kept,
+  one a week for about 2 months, and the last 3 made before an update or a restore.
+- **Settings → Backups** makes one on demand, copies the database to any folder (a pen drive, another disk) and
+  restores from a backup (your password is asked first; your current data is saved before restoring).
+- **Transactions** exports entries to CSV; **Reports** and **Monthly Budget** export styled Excel files.
 - Updating the app (`git pull`) never touches your data; database changes are applied automatically.
+
+## Updating the bundled libraries
+
+The app needs no internet: Flask and its helpers are bundled in `vendor/flask-bundle.zip`. Now and then, while
+online, run `./update.sh`. It shows what's newer and asks first, then checks that the app still works with the new
+versions before using them (if not, nothing changes). `./update.sh --check` only looks; `./update.sh --undo` goes
+back. Restart the app afterwards.
 
 ## Login and recovery
 
@@ -102,6 +115,7 @@ See [SECURITY.md](SECURITY.md) for what the login does and doesn't protect.
 ```
 ├── run.py                 start the app (--open, --port, --demo, --reset-password, --reset-mfa)
 ├── start.sh               start + open the browser
+├── update.sh              update the bundled libraries (needs internet; the app itself doesn't)
 ├── backend/               Flask JSON API
 │   ├── api/               HTTP routes, one blueprint per feature
 │   ├── services/          business rules and SQL (entries, reports, investments, loans, budget, auth, backup)

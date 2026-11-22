@@ -133,3 +133,19 @@ def delete_item(acc_id, iid):
 @bp.get("/investment-types")
 def list_types():
     return jsonify(types_svc.list_types())
+
+
+@bp.post("/investment-types")
+def add_type():
+    return jsonify(types_svc.add_type(_body())), 201
+
+
+@bp.put("/investment-types/<int:type_id>")
+def update_type(type_id):
+    return jsonify(types_svc.update_type(type_id, _body()))
+
+
+@bp.delete("/investment-types/<int:type_id>")
+def delete_type(type_id):
+    types_svc.delete_type(type_id)
+    return jsonify({"ok": True})

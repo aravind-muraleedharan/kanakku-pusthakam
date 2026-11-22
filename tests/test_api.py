@@ -92,6 +92,27 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/investments/" + "9" * 40).status_code, 404)
         self.assertEqual(self.c.get("/api/loans/" + "9" * 40).status_code, 404)
 
+    def test_reports_excel_export(self):
+        import io, zipfile
+        self.assertEqual(self.c.get("/api/reports/export.xlsx?from=2026-01-01&to=2026-12-31").status_code, 404)   # nothing yet
+        self.ok(type="expense", date="2026-09-05", amount="300", category_id=self.cat["Vehicle"],
+                from_account_id=self.acc["SBI"], payment_mode_id=self.mode["UPI"])
+        self.ok(type="expense", date="2026-10-09", amount="1200", category_id=self.cat["Vehicle"], from_account_id=self.acc["SBI"])
+        r = self.c.get("/api/reports/export.xlsx?from=2026-09-01&to=2026-10-31&label=Two%20months")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("reports_2026-09-01_to_2026-10-31.xlsx", r.headers["Content-Disposition"])
+        z = zipfile.ZipFile(io.BytesIO(r.data))
+        book = z.read("xl/workbook.xml").decode()
+        for name in ("Summary", "Categories", "Expense by month"):
+            self.assertIn(f'name="{name}"', book)
+        self.assertNotIn("Income by month", book)                                  # no income: no sheet
+        summary = z.read("xl/worksheets/sheet1.xml").decode()
+        for want in ("Two months", "1 Sep 2026", "September 2026", "October 2026", ">1500<", "UPI"):
+            self.assertIn(want, summary)
+        self.assertIn(">1200<", z.read("xl/worksheets/sheet3.xml").decode())
+        one = zipfile.ZipFile(io.BytesIO(self.c.get("/api/reports/export.xlsx?month=2026-10").data))
+        self.assertNotIn("by month", one.read("xl/workbook.xml").decode())      # one month: no month grid
+
     def test_csv_export_neutralises_formulas(self):
         self.ok(type="expense", date="2026-10-09", amount="5", category_id=self.cat["Vehicle"],
                 from_account_id=self.acc["SBI"], note='=HYPERLINK("http://x","y")')

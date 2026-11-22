@@ -97,6 +97,18 @@ def register():
     return jsonify(_status_payload()), 201
 
 
+def _daily_backup():
+    """The first login of the day makes the day's backup (only if your data changed). A problem never stops the login."""
+    from flask import current_app
+    from .. import db
+    if current_app.config.get("TESTING") and not current_app.config.get("BACKUP_ON_LOGIN"):
+        return
+    try:
+        db.daily_backup(current_app.config["DB_PATH"], current_app.config["BACKUP_DIR"])
+    except Exception:                      # noqa: BLE001 - a backup problem must not lock you out
+        current_app.logger.exception("Daily backup failed")
+
+
 @bp.post("/auth/login")
 def login():
     d = _body()
@@ -113,15 +125,19 @@ def login_code():
     svc.check_code(user, _body().get("code"))
     session["stage"] = "ok"
     session["last"] = int(time.time())
+    _daily_backup()
     return jsonify(_status_payload())
 
 
 @bp.post("/auth/mfa/begin")
 def mfa_begin():
     """New authenticator secret: during first setup, or from Settings when logged in (re-pairing a new phone)."""
-    user = current_user("mfa_setup") or current_user("ok")
+    setup = current_user("mfa_setup")
+    user = setup or current_user("ok")
     if not user:
         raise ApiError("Please log in", status=401)
+    if not setup:                          # already logged in: pairing a new phone needs your password too
+        svc.confirm_password(user, _body().get("password"))
     secret = totp.new_secret()
     session["pending_secret"] = secret
     return jsonify({"secret": secret, "uri": totp.otpauth_uri(secret, user["email"])})
@@ -144,6 +160,12 @@ def mfa_confirm():
 def logout():
     session.clear()
     return jsonify({"state": "logged_out"})
+
+
+@bp.post("/auth/ping")
+def ping():
+    """The page says you're still using it (reading, typing, scrolling): the check before every request keeps you logged in."""
+    return jsonify({"ok": True, "idle_minutes": svc.idle_minutes()})
 
 
 @bp.post("/auth/forgot")

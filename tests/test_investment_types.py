@@ -62,17 +62,30 @@ class InvestmentTypesTest(unittest.TestCase):
     def types(self):
         return {t["name"]: t for t in self.c.get("/api/investment-types").get_json()}
 
-    def test_types_are_read_only(self):
+    def test_types_managed_from_settings(self):
         t = self.types()
         self.assertEqual(len(t), 9)
         self.assertEqual(t["Gold Tree"]["works_like"], "gold")                # added by migration 013
         fd = t["Fixed Deposit"]
-        self.assertTrue(fd["builtin"])
-        # types can't be added, changed or removed from the app
-        self.assertEqual(self.c.post("/api/investment-types", json={"name": "X", "works_like": "other"}).status_code, 405)
-        self.assertIn(self.c.put(f"/api/investment-types/{fd['id']}", json={"active": False}).status_code, (404, 405))
-        self.assertIn(self.c.delete(f"/api/investment-types/{fd['id']}").status_code, (404, 405))
-        self.assertEqual(len(self.types()), 9)
+        self.assertTrue(fd["builtin"] and fd["fixed"] and t["Gold Tree"]["fixed"])
+        # built-in types keep their name and can't be deleted, but can be switched off
+        self.assertEqual(self.c.put(f"/api/investment-types/{fd['id']}", json={"name": "FD"}).status_code, 400)
+        self.assertEqual(self.c.delete(f"/api/investment-types/{fd['id']}").status_code, 400)
+        self.assertFalse(self.c.put(f"/api/investment-types/{fd['id']}", json={"active": False}).get_json()["active"])
+        # your own type: add, rename, use (then it can't be deleted)
+        self.assertEqual(self.c.post("/api/investment-types", json={"name": "Stocks", "works_like": "share"}).status_code, 400)
+        self.assertEqual(self.c.post("/api/investment-types", json={"name": "MF", "works_like": "nope"}).status_code, 400)
+        mf = self.c.post("/api/investment-types", json={"name": "MF", "works_like": "share"})
+        self.assertEqual(mf.status_code, 201)
+        mf = mf.get_json()
+        self.assertFalse(mf["fixed"])
+        self.assertEqual(self.c.put(f"/api/investment-types/{mf['id']}", json={"name": "Mutual funds"}).get_json()["name"], "Mutual funds")
+        spare = self.c.post("/api/investment-types", json={"name": "Spare", "works_like": "other"}).get_json()
+        self.assertEqual(self.c.delete(f"/api/investment-types/{spare['id']}").status_code, 200)
+        self.assertNotIn("Spare", self.types())
+        self.new(type_id=mf["id"], name="Zerodha Coin", opened_on=TODAY)
+        self.assertEqual(self.types()["Mutual funds"]["used"], 1)
+        self.assertEqual(self.c.delete(f"/api/investment-types/{mf['id']}").status_code, 400)
         # a hidden type can't be used for a new investment
         with self.app.app_context():
             get_db().execute("UPDATE investment_types SET active = 0 WHERE id = ?", (fd["id"],))
@@ -448,6 +461,31 @@ class InvestmentTypesTest(unittest.TestCase):
         simple = self.new(name="Old chit", inv_type="chitty", opening_balance="10000", opening_date=TODAY)
         self.assertNotIn("scheme", simple["summary"])
 
+
+    def test_chit_kuri_no_income_until_close(self):
+        start = (date.today().replace(day=1) - timedelta(days=100)).replace(day=10)
+        c = self.new(name="Kuri", inv_type="chitty", scheme=1, institution="KSFE", amount="5000",
+                     start_date=start.isoformat(), term_months=10, due_day=10, prepaid_instalments=3, opening_paid="15000")
+        cid = c["account"]["id"]
+        income = lambda: sum(x["amount"] for x in self.c.get("/api/entries?month=").get_json()["items"] if x["type"] == "income") \
+            + sum(x.get("gain") or 0 for x in self.c.get("/api/entries?month=").get_json()["items"] if x["type"] == "redeem")
+        # kuri of 40,000 after paying 15,000: nothing is income yet, 25,000 is still to be paid in
+        r = self.c.post(f"/api/investments/{cid}/redeem", json={"amount": "40000", "principal_amount": "15000",
+                                                               "date": TODAY, "to_account_id": self.bank})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        s = self.c.get(f"/api/investments/{cid}").get_json()["summary"]
+        self.assertEqual((s["received"], s["paid_in"], s["to_pay"], s["closed"], s["realised_gain"]), (40000, 15000, 25000, False, 0))
+        self.assertEqual(income(), 0)
+        # 6 more instalments (45,000 paid in all), then Close with nothing more coming: a loss of 5,000
+        for _ in range(6):
+            self.c.post(f"/api/investments/{cid}/funds", json={"amount": "5000", "date": TODAY, "from_account_id": self.bank})
+        self.c.post(f"/api/investments/{cid}/close", json={"date": TODAY, "amount": "0"})
+        e = next(x for x in self.c.get("/api/entries?month=").get_json()["items"] if x["type"] == "redeem")
+        self.assertEqual(e["gain"], 40000 - 45000)
+        # Undo closing: back to "no income yet"
+        self.c.post(f"/api/investments/{cid}/reopen")
+        e = next(x for x in self.c.get("/api/entries?month=").get_json()["items"] if x["type"] == "redeem")
+        self.assertEqual(e["gain"], 0)
 
     def test_gold_tree_count_only_then_grams(self):
         tree = self.types()["Gold Tree"]

@@ -111,6 +111,27 @@ class AuthTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/entries").status_code, 401)
         self.assertEqual(self.state(), "logged_out")
 
+    def test_new_phone_needs_password(self):
+        self.register()                                                     # logged in
+        self.assertEqual(self.c.post("/api/auth/mfa/begin", json={}).status_code, 400)
+        self.assertEqual(self.c.post("/api/auth/mfa/begin", json={"password": "wrong-password1"}).status_code, 400)
+        r = self.c.post("/api/auth/mfa/begin", json={"password": PASSWORD})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()["secret"])
+
+    def test_ping_keeps_you_logged_in(self):
+        import time as _t
+        self.register()
+        with self.c.session_transaction() as sess:          # 20 minutes since the last request...
+            sess["last"] = int(_t.time()) - 20 * 60
+        self.assertEqual(self.c.post("/api/auth/ping").status_code, 200)   # ...but the page saw you active
+        with self.c.session_transaction() as sess:
+            self.assertGreater(sess["last"], int(_t.time()) - 5)
+        with self.c.session_transaction() as sess:          # past the limit (30 min): logged out
+            sess["last"] = int(_t.time()) - 31 * 60
+        self.assertEqual(self.c.post("/api/auth/ping").status_code, 401)
+        self.assertEqual(self.state(), "logged_out")
+
     def test_csrf_header_required(self):
         self.register()
         raw = self.app.test_client()
